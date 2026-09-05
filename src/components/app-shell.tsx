@@ -23,7 +23,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       <aside className={`app-sidebar px-3 py-5 md:px-4 ${mobileOpen ? 'block' : ''}`}>
         <div className="flex items-center justify-between px-2 md:px-3">
           <Link href="/" className="flex items-center gap-3" data-testid="link-brand">
-            <span className="grid size-10 place-items-center rounded-xl bg-[hsl(var(--secondary))] font-bold text-xl text-[hsl(var(--secondary-foreground))]">K</span>
+            <span className="grid size-10 place-items-center rounded-xl bg-gradient-to-br from-emerald-700 via-emerald-600 to-emerald-800 font-black text-xl text-amber-300 shadow-[inset_0_0_0_1px_rgba(255,255,255,.16),0_5px_16px_rgba(4,120,87,.2)]">K</span>
             <span className="text-sm font-bold leading-tight">Keeta<br /><span className="font-medium text-[hsl(var(--sidebar-foreground)/.6)]">Training Team</span></span>
           </Link>
           <button className="rounded-lg p-2 md:hidden" onClick={() => setMobileOpen(false)} aria-label="Close navigation" data-testid="button-close-navigation"><X size={18} /></button>

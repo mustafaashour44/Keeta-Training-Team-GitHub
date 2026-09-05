@@ -1,33 +1,8 @@
-# dependencies
 node_modules/
-.pnpm-store/
-
-# build output
 dist/
-build/
-*.tsbuildinfo
-
-# environment / secrets
 .env
 .env.*
 !.env.example
-
-# logs
 *.log
-npm-debug.log*
-pnpm-debug.log*
-yarn-debug.log*
-yarn-error.log*
-
-# OS / editor
 .DS_Store
 Thumbs.db
-.vscode/
-.idea/
-
-# Replit-generated metadata
-.replit-artifact/
-
-# local temp
-.tmp/
-tmp/

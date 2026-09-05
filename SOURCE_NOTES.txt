@@ -1,0 +1,5 @@
+Prepared from the downloaded Replit source.
+No application source/UI/business logic was intentionally changed.
+Removed only generated/build/cache metadata such as dist/, *.tsbuildinfo, and .replit-artifact/.
+Added: .gitignore, .env.example, README.md, DATABASE_SETUP.md.
+No real database credentials were added.

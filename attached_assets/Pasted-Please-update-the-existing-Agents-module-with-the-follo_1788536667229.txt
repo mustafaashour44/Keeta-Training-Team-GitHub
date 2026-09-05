@@ -1,0 +1,535 @@
+Please update the existing Agents module with the following functionality.
+
+# AGENTS MANAGEMENT IMPROVEMENT
+
+The current "Add Agent" modal only allows adding one Agent at a time.
+
+Change this so the user can add:
+
+1. One Agent
+2. Multiple Agents at once
+3. Import Agents from Excel or CSV
+
+Keep the existing design style.
+
+---
+
+# 1. ADD AGENT BUTTON
+
+Keep the main button:
+
+* Add Agent
+
+When clicked, open a modal with three options or tabs:
+
+Single Agent
+
+Multiple Agents
+
+Import File
+
+---
+
+# 2. SINGLE AGENT
+
+Keep the existing Single Agent form.
+
+Fields:
+
+Full Name
+
+HR ID
+
+MIS
+
+LOB
+
+Employment Status
+
+Notes
+
+LOB options:
+
+C-Side
+
+BD-Side
+
+DC&Calls-Side
+
+Kfood
+
+CM
+
+Employment Status:
+
+Active
+
+Inactive
+
+Transferred
+
+On Leave
+
+HR ID must be unique.
+
+MIS should also warn if a duplicate already exists.
+
+Button:
+
+Save Agent
+
+---
+
+# 3. MULTIPLE AGENTS
+
+Add a tab called:
+
+Multiple Agents
+
+This should allow adding many Agents in one action.
+
+Use an editable table inside the modal.
+
+Columns:
+
+Full Name
+
+HR ID
+
+MIS
+
+LOB
+
+Employment Status
+
+Notes
+
+Start with approximately 5 empty rows.
+
+Add button:
+
+* Add Row
+
+This lets the user keep adding more rows.
+
+Also add:
+
+Remove Row
+
+for each row.
+
+At the bottom include:
+
+Save All Agents
+
+---
+
+# BULK ENTRY BEHAVIOR
+
+Before saving multiple Agents:
+
+Validate all rows.
+
+Check for duplicate HR IDs.
+
+Check against existing Agents.
+
+Check for duplicate HR IDs inside the new list itself.
+
+Warn if MIS already exists.
+
+Do not save incomplete rows unless the user intentionally leaves a fully blank row.
+
+Fully blank rows should simply be ignored.
+
+If one row contains an error, highlight only that row and explain the problem.
+
+Example:
+
+HR ID 10829 already exists.
+
+Do NOT silently create duplicates.
+
+---
+
+# 4. PASTE FROM EXCEL / GOOGLE SHEETS
+
+Inside Multiple Agents add another useful option:
+
+Paste from Excel / Google Sheets
+
+Allow the user to copy rows directly from Google Sheets or Excel and paste them into the bulk-entry table.
+
+Expected column order:
+
+Full Name | HR ID | MIS | LOB | Employment Status | Notes
+
+Automatically detect rows and columns from pasted tab-separated data.
+
+This is very important because the Training Team already works heavily with Google Sheets.
+
+After pasting, display a preview before saving.
+
+---
+
+# 5. IMPORT FILE
+
+Create an Import File tab.
+
+Allow:
+
+Excel .xlsx
+
+CSV .csv
+
+The user should be able to upload a prepared Agent list.
+
+After file upload:
+
+Show a preview table.
+
+Allow column mapping.
+
+Example:
+
+Uploaded column "ID" → HR ID
+
+Uploaded column "Username" → MIS
+
+Uploaded column "Department" → LOB
+
+Uploaded column "Name" → Full Name
+
+Then validate before import.
+
+Show:
+
+Valid rows
+
+Duplicate rows
+
+Rows with errors
+
+Allow:
+
+Import Valid Rows
+
+or
+
+Cancel
+
+Do not import duplicates unless explicitly corrected first.
+
+---
+
+# 6. AGENTS TABLE
+
+After Agents are added, show them in the Agents Database table.
+
+Columns:
+
+HR ID
+
+MIS
+
+Full Name
+
+LOB
+
+Employment Status
+
+Date Added
+
+Notes
+
+Actions
+
+The Actions column should contain:
+
+Edit
+
+Delete
+
+View Profile
+
+Use icons or a three-dot menu if it looks cleaner.
+
+---
+
+# 7. EDIT AGENT
+
+Every Agent must be editable.
+
+When clicking:
+
+Edit
+
+open a modal with the Agent's current information.
+
+Allow editing:
+
+Full Name
+
+MIS
+
+LOB
+
+Employment Status
+
+Notes
+
+HR ID should also be editable only when necessary, but show a warning because HR ID is the unique identifier.
+
+If HR ID is changed:
+
+Check that the new HR ID does not already exist.
+
+Do NOT lose the Agent's Training History.
+
+Do NOT create a new Agent record when editing.
+
+Update the existing Agent record.
+
+---
+
+# 8. LOB CHANGE
+
+If an Agent's LOB changes:
+
+Update their current LOB.
+
+Recalculate Head Count automatically.
+
+Keep all old Session and Training Activity History unchanged.
+
+Historical records should still show the LOB that was used at the time of the original Session.
+
+Example:
+
+Agent currently moves from C-Side to BD-Side.
+
+Current profile:
+
+LOB = BD-Side
+
+Old Training History may still show:
+
+C-Side
+
+for Sessions completed before the transfer.
+
+---
+
+# 9. STATUS CHANGE
+
+If Employment Status changes:
+
+Active
+
+Inactive
+
+Transferred
+
+On Leave
+
+recalculate Head Count automatically.
+
+Only Active Agents count toward Active HC.
+
+Do not delete historical Training records when status changes.
+
+---
+
+# 10. DELETE AGENT
+
+Every Agent should have a Delete option.
+
+IMPORTANT:
+
+Do not instantly delete when the user clicks Delete.
+
+Show a confirmation modal:
+
+"Are you sure you want to delete this Agent?"
+
+Display:
+
+Full Name
+
+HR ID
+
+MIS
+
+Add warning:
+
+"This may affect Head Count and Training records."
+
+Buttons:
+
+Cancel
+
+Delete Agent
+
+---
+
+# DELETE LOGIC
+
+If the Agent has NO Training History:
+
+Allow permanent deletion.
+
+If the Agent already has Training History, Session Attendance, or Activity Coverage records:
+
+Do NOT permanently remove historical records.
+
+Instead show two options:
+
+Deactivate Agent
+
+or
+
+Archive Agent
+
+Recommended behavior:
+
+Archive the Agent so historical data remains available.
+
+The Agent should disappear from the default Active Agents list but remain available in historical Reports and Training records.
+
+Do not break Sessions or Training Activities if an Agent is removed.
+
+---
+
+# 11. MULTI-SELECT AGENTS
+
+Add checkboxes beside each Agent in the Agents Database.
+
+Allow selecting multiple Agents.
+
+When one or more Agents are selected, show bulk actions:
+
+Change LOB
+
+Change Employment Status
+
+Archive
+
+Delete
+
+Export Selected
+
+For destructive actions, always require confirmation.
+
+---
+
+# 12. FILTERS
+
+Improve the Agents page filters.
+
+Allow filtering by:
+
+LOB
+
+Employment Status
+
+Active / Archived
+
+Search by:
+
+Full Name
+
+HR ID
+
+MIS
+
+Search should update quickly as the user types.
+
+---
+
+# 13. TABLE ACTIONS
+
+Add clear Actions for each Agent:
+
+View
+
+Edit
+
+Archive / Delete
+
+Use a three-dot menu if needed to keep the table clean.
+
+Example:
+
+⋮
+
+View Profile
+
+Edit Agent
+
+Archive Agent
+
+Delete Agent
+
+---
+
+# 14. SUCCESS MESSAGES
+
+After an action show small success notifications.
+
+Examples:
+
+"Agent added successfully."
+
+"12 Agents added successfully."
+
+"Agent information updated."
+
+"Agent moved to BD-Side."
+
+"Agent archived."
+
+"8 Agents imported successfully."
+
+Avoid full-page refreshes.
+
+Update the Agents table immediately.
+
+---
+
+# 15. IMPORTANT DATA RULES
+
+HR ID is the main unique identifier.
+
+Never create duplicate HR IDs.
+
+Do not lose Training History when editing an Agent.
+
+Do not lose Training History when changing LOB.
+
+Do not lose Training History when changing Employment Status.
+
+Do not break historical data when deleting or archiving an Agent.
+
+Agents Database remains the source of truth for current Agent Head Count.
+
+---
+
+# 16. UI REQUIREMENT
+
+Keep the same current visual design.
+
+The existing Add Agent modal is clean.
+
+Do not redesign the entire page.
+
+Improve the modal so it supports:
+
+Single Agent
+
+Multiple Agents
+
+Import File
+
+For Multiple Agents, use a professional spreadsheet-like editable table so Trainers can enter many Agents quickly.
+
+The goal is to make adding 20, 50, or 100 Agents much faster than entering them one by one.

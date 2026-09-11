@@ -1,4 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { pullFromCloud, pushToCloud, subscribeToCloud } from './cloud-sync';
 
 export const Lob = {
   'C-Side': 'C-Side',
@@ -80,7 +81,7 @@ function loadDb(): Db {
     return emptyDb();
   }
 }
-function saveDb(db: Db) { localStorage.setItem(STORAGE_KEY, JSON.stringify(db)); }
+function saveDb(db: Db) { localStorage.setItem(STORAGE_KEY, JSON.stringify(db)); pushToCloud(db); }
 function withDb<T>(fn: (db: Db) => T): T { const db = loadDb(); const out = fn(db); saveDb(db); return out; }
 function activeAgents(db: Db, includeArchived = false) { return db.agents.filter(a => includeArchived || !a.archivedAt).sort((a,b) => a.name.localeCompare(b.name)); }
 function log(db: Db, action: string, relatedRecord: string | null, trainer: string | null = null) { db.logs.unshift({ id: db.counters.log++, action, relatedRecord, trainer, createdAt: new Date().toISOString() }); db.logs = db.logs.slice(0, 100); }
@@ -202,3 +203,24 @@ export function useUpdateTrainingUpdate(){ return useLocalMutation<any,any>(({id
 export function exportLocalDatabase() { return JSON.stringify(loadDb(), null, 2); }
 export function importLocalDatabase(json: string) { const parsed = JSON.parse(json) as Db; saveDb({ ...emptyDb(), ...parsed, counters: { ...emptyDb().counters, ...(parsed.counters ?? {}) } }); }
 export function clearLocalDatabase() { localStorage.removeItem(STORAGE_KEY); }
+
+/**
+ * Call once when the app starts. Pulls the latest shared database from
+ * Firestore (if one exists) and keeps listening for changes made by
+ * teammates on other devices, refreshing the UI whenever new data arrives.
+ * If nothing exists in the cloud yet, seeds it with whatever is stored
+ * locally so the very first device to run this becomes the starting point.
+ */
+export async function initCloudSync(onRemoteUpdate: () => void) {
+  const remoteJson = await pullFromCloud();
+  if (remoteJson) {
+    localStorage.setItem(STORAGE_KEY, remoteJson);
+    onRemoteUpdate();
+  } else {
+    pushToCloud(loadDb());
+  }
+  subscribeToCloud((json) => {
+    localStorage.setItem(STORAGE_KEY, json);
+    onRemoteUpdate();
+  });
+}

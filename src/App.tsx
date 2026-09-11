@@ -1,10 +1,11 @@
-import { type ReactNode } from 'react';
+import { useEffect, type ReactNode } from 'react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { ErrorBoundary } from '@/components/error-boundary';
 import { Toaster } from '@/components/ui/toaster';
 import { TooltipProvider } from '@/components/ui/tooltip';
 import NotFound from '@/pages/not-found';
 import { AppShell } from '@/components/app-shell';
+import { initCloudSync } from '@/lib/local-api-client';
 import {
   ActivityDetailPage,
   ActivitiesPage,
@@ -62,6 +63,15 @@ function RoutedErrorBoundary({ children }: { children: ReactNode }) {
 }
 
 function App() {
+  // Pull the shared team database from the cloud on load, then stay
+  // subscribed so changes made by teammates on other devices show up
+  // here automatically.
+  useEffect(() => {
+    initCloudSync(() => {
+      void queryClient.invalidateQueries();
+    });
+  }, []);
+
   return (
     <QueryClientProvider client={queryClient}>
       <TooltipProvider>

@@ -1,4 +1,4 @@
-import { Bell, BookOpenCheck, ChartNoAxesCombined, ClipboardList, FileBarChart, Gauge, GraduationCap, LayoutDashboard, Link2, LogOut, Menu, Settings, Users, X } from 'lucide-react';
+import { BookOpenCheck, ChartNoAxesCombined, ClipboardList, FileBarChart, Gauge, GraduationCap, LayoutDashboard, Link2, LogOut, Menu, Settings, Users, X } from 'lucide-react';
 import { useState } from 'react';
 import { Link, useLocation } from 'wouter';
 import { getCurrentUser, logout } from '@/lib/user-auth';
@@ -54,7 +54,6 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             <div><p className="eyebrow md:hidden">{current}</p><p className="hidden text-sm text-[hsl(var(--muted-foreground))] md:block">{new Date().toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}</p></div>
           </div>
           <div className="flex items-center gap-3">
-            <button className="relative rounded-xl border border-[hsl(var(--border))] bg-[hsl(var(--card))] p-2.5" aria-label="Notifications" data-testid="button-notifications"><Bell size={17} /><span className="absolute right-2 top-2 size-1.5 rounded-full bg-[hsl(var(--secondary))]" /></button>
             <div className="flex items-center gap-2 border-l border-[hsl(var(--border))] pl-3">
               <span className="grid size-9 place-items-center rounded-full bg-[hsl(var(--primary)/.14)] text-xs font-bold text-[hsl(var(--primary))]">{user?.name.slice(0,2).toUpperCase() ?? 'KT'}</span>
               <div className="hidden leading-tight sm:block"><p className="text-sm font-semibold">{user?.name ?? 'Keeta team'}</p><p className="text-[11px] text-[hsl(var(--muted-foreground))]">{user?.isAdmin ? 'Main Admin' : 'Trainer'}</p></div><button onClick={logout} title="Sign out" className="rounded-lg p-2 hover:bg-[hsl(var(--muted))]"><LogOut size={16}/></button>

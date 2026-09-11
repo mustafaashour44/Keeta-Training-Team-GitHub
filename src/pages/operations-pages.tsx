@@ -124,16 +124,132 @@ export function DashboardPage() {
       { name: 'Needs Attention', sheet: makeExcelSheet(d?.needingAttention ?? [], [{ header: 'Activity', value: (r: any) => r.name, width: 32 }, { header: 'Coverage %', value: (r: any) => r.coveragePercent }, { header: 'Pending Agents', value: (r: any) => r.pendingAgents }, { header: 'Status', value: (r: any) => r.status, width: 16 }]) },
     ]);
   };
-  return <div><PageHeader eyebrow="Daily command center" title={welcomeTitle} description="The shape of training across your team, at a glance." action={<Button onClick={exportDashboard} variant="outline" testId="button-export-dashboard"><Download size={16} />Export Excel</Button>} />
-    <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-5">
-      <StatCard label="Coverage of active activities" value={pct(d?.coveragePercent)} hint="Attended ÷ required" icon={Target} /><StatCard label="Agents covered" value={d?.agentsCovered ?? 0} hint="this cycle" icon={UsersRound} accent="amber" /><StatCard label="Sessions completed" value={d?.completedSessions ?? 0} hint="all time" icon={Check} accent="navy" /><StatCard label="Training hours" value={d?.trainingHours ?? 0} hint="logged" icon={CalendarDays} /><StatCard label="Active batches" value={d?.activeBatches ?? 0} hint={`${d?.activeNewHireBatches ?? 0} New Hire · ${d?.activeUpskillBatches ?? 0} Upskill`} icon={GraduationCap} accent="amber" />
+  return (
+    <div>
+      <PageHeader
+        eyebrow="Daily command center"
+        title={welcomeTitle}
+        description="The shape of training across your team, at a glance."
+        action={<Button onClick={exportDashboard} variant="outline" testId="button-export-dashboard"><Download size={16} />Export Excel</Button>}
+      />
+
+      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-5">
+        <StatCard label="Coverage of active activities" value={pct(d?.coveragePercent)} hint="Attended ÷ required" icon={Target} />
+        <StatCard label="Agents covered" value={d?.agentsCovered ?? 0} hint="this cycle" icon={UsersRound} accent="amber" />
+        <StatCard label="Sessions completed" value={d?.completedSessions ?? 0} hint="all time" icon={Check} accent="navy" />
+        <StatCard label="Training hours" value={d?.trainingHours ?? 0} hint="logged" icon={CalendarDays} />
+        <StatCard label="Active batches" value={d?.activeBatches ?? 0} hint={`${d?.activeNewHireBatches ?? 0} New Hire · ${d?.activeUpskillBatches ?? 0} Upskill`} icon={GraduationCap} accent="amber" />
+      </div>
+
+      <div className="mt-4 grid gap-4 xl:grid-cols-[1.38fr_1fr]">
+        <div className="soft-card p-5 md:p-6">
+          <div className="flex items-start justify-between">
+            <div>
+              <p className="eyebrow">Coverage by LOB</p>
+              <h2 className="mt-1 text-lg font-bold">Active activity coverage by LOB</h2>
+              <p className="mt-1 text-xs text-[hsl(var(--muted-foreground))]">Shows which active activities each LOB is currently being covered on.</p>
+            </div>
+            <Link href="/coverage" className="text-xs font-bold text-[hsl(var(--primary))]" data-testid="link-view-coverage">
+              View coverage <ArrowUpRight className="inline" size={13} />
+            </Link>
+          </div>
+
+          {d?.coverageByLob?.length ? (
+            <div className="mt-7 space-y-5">
+              {d.coverageByLob.map((row: any) => (
+                <div key={row.lob}>
+                  <div className="mb-2 flex justify-between text-sm">
+                    <span className="font-semibold">{row.lob}</span>
+                    <span className="font-bold">{pct(row.percent)} <span className="font-normal text-[hsl(var(--muted-foreground))]">{row.covered}/{row.required}</span></span>
+                  </div>
+                  <div className="bar-track"><div className="bar-fill" style={{ width: `${row.percent}%` }} /></div>
+                  {row.activities?.length ? (
+                    <div className="mt-2 space-y-1.5">
+                      {row.activities.map((activity: any) => (
+                        <Link
+                          key={activity.id}
+                          href={`/activities/${activity.id}`}
+                          className="flex items-center justify-between gap-3 rounded-lg bg-[hsl(var(--muted)/.55)] px-3 py-2 text-xs hover:bg-[hsl(var(--accent))]"
+                        >
+                          <span className="min-w-0 truncate font-semibold">{activity.name}</span>
+                          <span className="shrink-0 font-bold text-[hsl(var(--primary))]">{activity.covered}/{activity.required} · {pct(activity.percent)}</span>
+                        </Link>
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="mt-2 text-xs text-[hsl(var(--muted-foreground))]">No active activity for this LOB.</p>
+                  )}
+                </div>
+              ))}
+            </div>
+          ) : (
+            <EmptyState
+              title="No coverage data yet"
+              description="Coverage will take shape as activities and sessions are recorded."
+              action={<Link href="/activities" className="inline-flex items-center gap-2 rounded-xl border border-[hsl(var(--border))] bg-[hsl(var(--card))] px-3.5 py-2.5 text-sm font-bold hover:bg-[hsl(var(--accent))]">Start an activity</Link>}
+            />
+          )}
+        </div>
+
+        <div className="soft-card p-5 md:p-6">
+          <p className="eyebrow">Workload pulse</p>
+          <h2 className="mt-1 text-lg font-bold">Sessions by trainer</h2>
+          {d?.sessionsByTrainer?.length ? (
+            <div className="mt-6 space-y-4">
+              {d.sessionsByTrainer.map((row: any) => (
+                <div key={row.trainer.id} className="flex items-center gap-3">
+                  <span className="grid size-8 place-items-center rounded-full bg-[hsl(var(--accent))] text-xs font-bold">{row.trainer.name.slice(0, 2).toUpperCase()}</span>
+                  <span className="flex-1 text-sm font-semibold">{row.trainer.name}</span>
+                  <span className="text-sm font-bold">{row.sessions}</span>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <EmptyState
+              title="No sessions logged"
+              description="Create the first session to see workload patterns."
+              action={<Link href="/sessions" className="inline-flex items-center gap-2 rounded-xl bg-[hsl(var(--primary))] px-3.5 py-2.5 text-sm font-bold text-[hsl(var(--primary-foreground))]" data-testid="link-dashboard-create-session"><Plus size={16} />Create session</Link>}
+            />
+          )}
+        </div>
+      </div>
+
+      <div className="mt-4 grid gap-4 xl:grid-cols-[1fr_1.2fr]">
+        <div className="soft-card p-5 md:p-6">
+          <div className="flex items-center justify-between">
+            <div><p className="eyebrow">Attention queue</p><h2 className="mt-1 text-lg font-bold">What needs a closer look</h2></div>
+            <Link href="/activities" className="text-xs font-bold text-[hsl(var(--primary))]" data-testid="link-view-activities">All activities <ArrowUpRight className="inline" size={13} /></Link>
+          </div>
+          <div className="mt-5">
+            {d?.needingAttention?.length ? d.needingAttention.slice(0, 4).map((item: any) => (
+              <Link href={`/activities/${item.id}`} key={item.id} className="flex items-center gap-3 border-t border-[hsl(var(--border))] py-3" data-testid={`link-attention-${item.id}`}>
+                <span className="size-2 rounded-full bg-[hsl(var(--secondary))]" />
+                <span className="min-w-0 flex-1 truncate text-sm font-semibold">{item.name}</span>
+                <span className="text-xs text-[hsl(var(--muted-foreground))]">{pct(item.coveragePercent)}</span>
+                <ChevronRight size={16} className="text-[hsl(var(--muted-foreground))]" />
+              </Link>
+            )) : <p className="rounded-xl bg-[hsl(var(--muted))] p-4 text-sm text-[hsl(var(--muted-foreground))]">Nothing is waiting for your attention.</p>}
+          </div>
+        </div>
+
+        <div className="soft-card p-5 md:p-6">
+          <p className="eyebrow">Recent activity</p>
+          <h2 className="mt-1 text-lg font-bold">A clean trail of work</h2>
+          <div className="mt-5">
+            {d?.recentActivity?.length ? d.recentActivity.slice(0, 5).map((item: any) => (
+              <div className="flex gap-3 border-t border-[hsl(var(--border))] py-3" key={item.id}>
+                <span className="mt-1.5 size-2 rounded-full bg-[hsl(var(--primary))]" />
+                <div>
+                  <p className="text-sm font-semibold">{item.action}</p>
+                  <p className="mt-0.5 text-xs text-[hsl(var(--muted-foreground))]">{item.trainer ? `${item.trainer} · ` : ''}{item.relatedRecord ?? 'Training workspace'} · {dateLabel(item.createdAt)}</p>
+                </div>
+              </div>
+            )) : <p className="rounded-xl bg-[hsl(var(--muted))] p-4 text-sm text-[hsl(var(--muted-foreground))]">Your activity trail will appear here as work happens.</p>}
+          </div>
+        </div>
+      </div>
     </div>
-    <div className="mt-4 grid gap-4 xl:grid-cols-[1.38fr_1fr]">
-      <div className="soft-card p-5 md:p-6"><div className="flex items-start justify-between"><div><p className="eyebrow">Coverage by LOB</p><h2 className="mt-1 text-lg font-bold">Active activity coverage by LOB</h2><p className="mt-1 text-xs text-[hsl(var(--muted-foreground))]">Shows which active activities each LOB is currently being covered on.</p></div><Link href="/coverage" className="text-xs font-bold text-[hsl(var(--primary))]" data-testid="link-view-coverage">View coverage <ArrowUpRight className="inline" size={13} /></Link></div>{d?.coverageByLob?.length ? <div className="mt-7 space-y-5">{d.coverageByLob.map((row) => <div key={row.lob}><div className="mb-2 flex justify-between text-sm"><span className="font-semibold">{row.lob}</span><span className="font-bold">{pct(row.percent)} <span className="font-normal text-[hsl(var(--muted-foreground))]">{row.covered}/{row.required}</span></span></div><div className="bar-track"><div className="bar-fill" style={{ width: `${row.percent}%` }} /></div></div>{row.activities?.length ? <div className="mt-2 space-y-1.5">{row.activities.map((activity:any)=><Link key={activity.id} href={`/activities/${activity.id}`} className="flex items-center justify-between gap-3 rounded-lg bg-[hsl(var(--muted)/.55)] px-3 py-2 text-xs hover:bg-[hsl(var(--accent))]"><span className="min-w-0 truncate font-semibold">{activity.name}</span><span className="shrink-0 font-bold text-[hsl(var(--primary))]">{activity.covered}/{activity.required} · {pct(activity.percent)}</span></Link>)}</div> : <p className="mt-2 text-xs text-[hsl(var(--muted-foreground))]">No active activity for this LOB.</p>}</div>)}</div> : <EmptyState title="No coverage data yet" description="Coverage will take shape as activities and sessions are recorded." action={<Button onClick={() => {}} variant="outline" testId="button-dashboard-add-activity">Start an activity</Button>} />}</div>
-      <div className="soft-card p-5 md:p-6"><p className="eyebrow">Workload pulse</p><h2 className="mt-1 text-lg font-bold">Sessions by trainer</h2>{d?.sessionsByTrainer?.length ? <div className="mt-6 space-y-4">{d.sessionsByTrainer.map((row) => <div key={row.trainer.id} className="flex items-center gap-3"><span className="grid size-8 place-items-center rounded-full bg-[hsl(var(--accent))] text-xs font-bold">{row.trainer.name.slice(0, 2).toUpperCase()}</span><span className="flex-1 text-sm font-semibold">{row.trainer.name}</span><span className="text-sm font-bold">{row.sessions}</span></div>)}</div> : <EmptyState title="No sessions logged" description="Create the first session to see workload patterns." action={<Link href="/sessions" className="inline-flex items-center gap-2 rounded-xl bg-[hsl(var(--primary))] px-3.5 py-2.5 text-sm font-bold text-[hsl(var(--primary-foreground))]" data-testid="link-dashboard-create-session"><Plus size={16} />Create session</Link>} />}</div>
-    </div>
-    <div className="mt-4 grid gap-4 xl:grid-cols-[1fr_1.2fr]"><div className="soft-card p-5 md:p-6"><div className="flex items-center justify-between"><div><p className="eyebrow">Attention queue</p><h2 className="mt-1 text-lg font-bold">What needs a closer look</h2></div><Link href="/activities" className="text-xs font-bold text-[hsl(var(--primary))]" data-testid="link-view-activities">All activities <ArrowUpRight className="inline" size={13} /></Link></div><div className="mt-5">{d?.needingAttention?.length ? d.needingAttention.slice(0, 4).map((item) => <Link href={`/activities/${item.id}`} key={item.id} className="flex items-center gap-3 border-t border-[hsl(var(--border))] py-3" data-testid={`link-attention-${item.id}`}><span className="size-2 rounded-full bg-[hsl(var(--secondary))]" /><span className="min-w-0 flex-1 truncate text-sm font-semibold">{item.name}</span><span className="text-xs text-[hsl(var(--muted-foreground))]">{pct(item.coveragePercent)}</span><ChevronRight size={16} className="text-[hsl(var(--muted-foreground))]" /></Link>) : <p className="rounded-xl bg-[hsl(var(--muted))] p-4 text-sm text-[hsl(var(--muted-foreground))]">Nothing is waiting for your attention.</p>}</div></div><div className="soft-card p-5 md:p-6"><p className="eyebrow">Recent activity</p><h2 className="mt-1 text-lg font-bold">A clean trail of work</h2><div className="mt-5">{d?.recentActivity?.length ? d.recentActivity.slice(0, 5).map((item) => <div className="flex gap-3 border-t border-[hsl(var(--border))] py-3" key={item.id}><span className="mt-1.5 size-2 rounded-full bg-[hsl(var(--primary))]" /><div><p className="text-sm font-semibold">{item.action}</p><p className="mt-0.5 text-xs text-[hsl(var(--muted-foreground))]">{item.trainer ? `${item.trainer} · ` : ''}{item.relatedRecord ?? 'Training workspace'} · {dateLabel(item.createdAt)}</p></div></div>) : <p className="rounded-xl bg-[hsl(var(--muted))] p-4 text-sm text-[hsl(var(--muted-foreground))]">Your activity trail will appear here as work happens.</p>}</div></div></div>
-  </div>;
+  );
 }
 
 function ActivityForm({ onClose, initial, onSaved }: { onClose: () => void; initial?: any; onSaved?: () => void }) {

@@ -181,7 +181,8 @@ function activityView(db: Db, a: Activity) {
 }
 function sessionView(db: Db, s: Session) {
   const activity = db.activities.find(a=>a.id===s.activityId); const trainer = TRAINERS.find(t=>t.id===s.trainerId) ?? { id:s.trainerId, name:'Unknown', role:'Trainer' };
-  return { ...s, activityName: activity?.name ?? 'Unknown activity', trainer, attendanceCount: db.attendance.filter(a=>a.sessionId===s.id).length };
+  const sessionAttendance = db.attendance.filter(a=>a.sessionId===s.id);
+  return { ...s, activityName: activity?.name ?? 'Unknown activity', trainer, attendanceCount: sessionAttendance.length, attendedCount: sessionAttendance.filter(a=>a.status==='Attended').length, absentCount: sessionAttendance.filter(a=>a.status==='Absent').length };
 }
 function coverageRows(db: Db) {
   const rows: any[] = [];
@@ -223,10 +224,28 @@ function headCount(db: Db) {
   return { totalActive:agents.filter(a=>a.employmentStatus==='Active').length, inactive:agents.filter(a=>a.employmentStatus==='Inactive').length, transferred:agents.filter(a=>a.employmentStatus==='Transferred').length, onLeave:agents.filter(a=>a.employmentStatus==='On Leave').length, rows, snapshots:[...byMonth.entries()].sort().reverse().map(([month,totalActive])=>({month,totalActive})) };
 }
 function dashboard(db: Db) {
-  const activities=db.activities.map(a=>activityView(db,a)); const completedSessions=db.sessions.filter(s=>s.status==='Completed'); const coverage=coverageRows(db); const coveredAgentIds=new Set(coverage.filter(r=>r.status==='Covered').map(r=>r.agentId)); const requiredCount=activities.reduce((n,a)=>n+a.requiredAgents,0); const coveredCount=activities.reduce((n,a)=>n+a.coveredAgents,0);
-  const coverageByLob=LOBS.map(lob=>{ const scoped=coverage.filter(r=>r.lob===lob); const covered=scoped.filter(r=>r.status==='Covered').length; return {lob,covered,required:scoped.length,percent:scoped.length?Math.round(covered/scoped.length*100):0}; });
+  const activities=db.activities.map(a=>activityView(db,a));
+  const completedSessions=db.sessions.filter(s=>s.status==='Completed');
+  const coverage=coverageRows(db);
+  const activeActivityIds=new Set(db.activities.filter(a=>['Active','In Progress'].includes(a.status)).map(a=>a.id));
+  const currentCoverage=coverage.filter(r=>activeActivityIds.has(r.activityId));
+  const coveredAgentIds=new Set(currentCoverage.filter(r=>r.status==='Covered').map(r=>r.agentId));
+  const requiredCount=currentCoverage.length;
+  const coveredCount=currentCoverage.filter(r=>r.status==='Covered').length;
+  const coverageByLob=LOBS.map(lob=>{
+    const scoped=currentCoverage.filter(r=>r.lob===lob);
+    const covered=scoped.filter(r=>r.status==='Covered').length;
+    const activityIds=[...new Set(scoped.map(r=>r.activityId))];
+    const activities=activityIds.map(activityId=>{
+      const rows=scoped.filter(r=>r.activityId===activityId);
+      const activity=db.activities.find(a=>a.id===activityId);
+      const activityCovered=rows.filter(r=>r.status==='Covered').length;
+      return { id:activityId, name:activity?.name ?? 'Activity', covered:activityCovered, required:rows.length, percent:rows.length?Math.round(activityCovered/rows.length*100):0 };
+    }).sort((a,b)=>a.name.localeCompare(b.name));
+    return {lob,covered,required:scoped.length,percent:scoped.length?Math.round(covered/scoped.length*100):0,activities};
+  });
   const activeBatchRows=db.batches.filter(b=>b.status==='In Training'); const activeNewHireBatches=activeBatchRows.filter(b=>b.batchType!=='Upskill').length; const activeUpskillBatches=activeBatchRows.filter(b=>b.batchType==='Upskill').length;
-  return { completedSessions:completedSessions.length, agentsCovered:coveredAgentIds.size, pendingAgents:Math.max(requiredCount-coveredCount,0), activeHeadCount:activeAgents(db).filter(a=>a.employmentStatus==='Active').length, activeActivities:db.activities.filter(a=>['Active','In Progress'].includes(a.status)).length, activeBatches:activeBatchRows.length, activeNewHireBatches, activeUpskillBatches, newHiresInTraining:db.batchTrainees.filter(t=>!t.graduated && db.batches.some(b=>b.id===t.batchId&&b.status==='In Training'&&b.batchType!=='Upskill')).length, upskillParticipantsInTraining:db.batchTrainees.filter(t=>db.batches.some(b=>b.id===t.batchId&&b.status==='In Training'&&b.batchType==='Upskill')).length, coveragePercent:requiredCount?Math.round(coveredCount/requiredCount*100):0, trainingHours:Math.round(completedSessions.reduce((n,s)=>n+s.durationMinutes,0)/60*10)/10, coverageByLob, sessionsByTrainer:TRAINERS.map(trainer=>({trainer,sessions:completedSessions.filter(s=>s.trainerId===trainer.id).length})).sort((a,b)=>b.sessions-a.sessions || a.trainer.name.localeCompare(b.trainer.name)), needingAttention:activities.filter(a=>a.pendingAgents>0&&a.status!=='Archived').slice(0,5), recentActivity:db.logs.slice(0,8) };
+  return { completedSessions:completedSessions.length, agentsCovered:coveredAgentIds.size, pendingAgents:Math.max(requiredCount-coveredCount,0), activeHeadCount:activeAgents(db).filter(a=>a.employmentStatus==='Active').length, activeActivities:activeActivityIds.size, activeBatches:activeBatchRows.length, activeNewHireBatches, activeUpskillBatches, newHiresInTraining:db.batchTrainees.filter(t=>!t.graduated && db.batches.some(b=>b.id===t.batchId&&b.status==='In Training'&&b.batchType!=='Upskill')).length, upskillParticipantsInTraining:db.batchTrainees.filter(t=>db.batches.some(b=>b.id===t.batchId&&b.status==='In Training'&&b.batchType==='Upskill')).length, coveragePercent:requiredCount?Math.round(coveredCount/requiredCount*100):0, trainingHours:Math.round(completedSessions.reduce((n,s)=>n+s.durationMinutes,0)/60*10)/10, coverageByLob, sessionsByTrainer:TRAINERS.map(trainer=>({trainer,sessions:completedSessions.filter(s=>s.trainerId===trainer.id).length})).sort((a,b)=>b.sessions-a.sessions || a.trainer.name.localeCompare(b.trainer.name)), needingAttention:activities.filter(a=>a.pendingAgents>0&&['Active','In Progress'].includes(a.status)).slice(0,5), recentActivity:db.logs.slice(0,8) };
 }
 function updatesView(db: Db) { return [...db.updates].sort((a,b)=>b.releaseDate.localeCompare(a.releaseDate)).map(u=>{ const views=u.linkedActivities.map(id=>db.activities.find(a=>a.id===id)).filter(Boolean).map(a=>activityView(db,a!)); return { ...u, coveragePercent:views.length?Math.round(views.reduce((n,a)=>n+a.coveragePercent,0)/views.length):0 }; }); }
 function workload(db: Db) { const month=new Date().toISOString().slice(0,7); return TRAINERS.map(trainer=>{ const sessions=db.sessions.filter(s=>s.trainerId===trainer.id); const recs=db.attendance.filter(r=>sessions.some(s=>s.id===r.sessionId)); return { trainer, completedSessions:sessions.filter(s=>s.status==='Completed').length, uniqueAgentsCovered:new Set(recs.filter(r=>r.status==='Attended').map(r=>r.agentId)).size, totalAttendance:recs.length, trainingHours:Math.round(sessions.filter(s=>s.status==='Completed').reduce((n,s)=>n+s.durationMinutes,0)/60*10)/10, activeSessions:sessions.filter(s=>['Planned','In Progress'].includes(s.status)).length, sessionsThisMonth:sessions.filter(s=>s.sessionDate.startsWith(month)).length, activitiesParticipated:new Set(sessions.map(s=>s.activityId)).size }; }).sort((a,b)=>b.completedSessions-a.completedSessions || a.trainer.name.localeCompare(b.trainer.name)); }

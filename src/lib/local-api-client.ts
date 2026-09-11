@@ -53,6 +53,13 @@ type Activity = { id: number; name: string; type: ActivityType | string; scope: 
 type Session = { id: number; sessionId: string; activityId: number; sessionDate: string; trainerId: number; lob: Lob; type: SessionType | string; topic: string | null; durationMinutes: number; status: SessionStatus | string; notes: string | null };
 type Attendance = { id: number; sessionId: number; agentId: number; status: AttendanceStatus | string; result: number | null; notes: string | null };
 type TrainingUpdate = { id: number; updateId: string; title: string; description: string | null; scope: Lob[]; releaseDate: string; deadline: string | null; status: UpdateStatus | string; linkedActivities: number[]; notes: string | null };
+export type BatchStatus = 'In Training' | 'Completed' | 'Archived';
+export type CertificationStatus = 'Pending' | 'Passed' | 'Failed';
+export type BatchAttendanceStatus = 'Not Marked' | 'Attended' | 'Absent';
+type Batch = { id: number; batchId: string; name: string; lob: Lob; trainerId: number; startDate: string; durationDays: number; status: BatchStatus; notes: string | null; dayDates: string[]; createdAt: string };
+type BatchTrainee = { id: number; batchId: number; name: string; mis: string | null; hrId: string | null; jw: string | null; email: string | null; portalPassword: string | null; phoneNumber: string | null; notes: string | null; quizScore: string | null; quizResult: CertificationStatus; quizNotes: string | null; typingWpm: string | null; typingAccuracy: string | null; typingResult: CertificationStatus; typingNotes: string | null; finalScore: string | null; finalNotes: string | null; certificationStatus: CertificationStatus; graduated: boolean; agentId: number | null };
+type BatchAttendance = { id: number; batchId: number; traineeId: number; dayNumber: number; date: string; status: BatchAttendanceStatus; notes: string | null };
+type ExamLink = { id: number; title: string; lob: Lob | 'All LOBs'; type: string; url: string; notes: string | null; status: 'Active' | 'Archived'; addedBy: string; createdAt: string };
 export type AuthUser = { id: number; name: string; role: string; isAdmin: boolean; frozen: boolean; passwordHash: string | null; salt: string };
 type Log = { id: number; action: string; relatedRecord: string | null; trainer: string | null; createdAt: string };
 type Snapshot = { month: string; lob: Lob; active: number; inactive: number; transferred: number; onLeave: number; total: number };
@@ -62,16 +69,20 @@ type Db = {
   sessions: Session[];
   attendance: Attendance[];
   updates: TrainingUpdate[];
+  batches: Batch[];
+  batchTrainees: BatchTrainee[];
+  batchAttendance: BatchAttendance[];
+  examLinks: ExamLink[];
   logs: Log[];
   snapshots: Snapshot[];
   users: AuthUser[];
-  counters: { agent: number; activity: number; session: number; attendance: number; update: number; log: number };
+  counters: { agent: number; activity: number; session: number; attendance: number; update: number; batch: number; batchTrainee: number; batchAttendance: number; examLink: number; log: number };
 };
 
 const emptyDb = (): Db => ({
-  agents: [], activities: [], sessions: [], attendance: [], updates: [], logs: [], snapshots: [],
+  agents: [], activities: [], sessions: [], attendance: [], updates: [], batches: [], batchTrainees: [], batchAttendance: [], examLinks: [], logs: [], snapshots: [],
   users: TRAINERS.map(t => ({ id: t.id, name: t.name, role: t.role, isAdmin: t.name === 'Mustafa', frozen: false, passwordHash: null, salt: `keeta-${t.id}-${t.name.toLowerCase()}-2026` })),
-  counters: { agent: 1, activity: 1, session: 1, attendance: 1, update: 1, log: 1 },
+  counters: { agent: 1, activity: 1, session: 1, attendance: 1, update: 1, batch: 1, batchTrainee: 1, batchAttendance: 1, examLink: 1, log: 1 },
 });
 
 function loadDb(): Db {
@@ -79,7 +90,26 @@ function loadDb(): Db {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (!raw) return emptyDb();
     const parsed = JSON.parse(raw) as Partial<Db>;
-    const base = emptyDb(); const merged = { ...base, ...parsed, counters: { ...base.counters, ...(parsed.counters ?? {}) } } as Db; if (!Array.isArray(merged.users) || !merged.users.length) merged.users = base.users; return merged;
+    const base = emptyDb(); const merged = { ...base, ...parsed, counters: { ...base.counters, ...(parsed.counters ?? {}) } } as Db;
+    if (!Array.isArray(merged.users) || !merged.users.length) merged.users = base.users;
+    if (!Array.isArray(merged.batchTrainees)) merged.batchTrainees = [];
+    merged.batchTrainees = merged.batchTrainees.map((t:any) => ({
+      ...t,
+      jw: t.jw ?? null,
+      email: t.email ?? null,
+      portalPassword: t.portalPassword ?? null,
+      phoneNumber: t.phoneNumber ?? null,
+      quizScore: t.quizScore ?? null,
+      quizResult: t.quizResult ?? 'Pending',
+      quizNotes: t.quizNotes ?? null,
+      typingWpm: t.typingWpm ?? null,
+      typingAccuracy: t.typingAccuracy ?? null,
+      typingResult: t.typingResult ?? 'Pending',
+      typingNotes: t.typingNotes ?? null,
+      finalScore: t.finalScore ?? null,
+      finalNotes: t.finalNotes ?? null,
+    }));
+    return merged;
   } catch {
     return emptyDb();
   }
@@ -156,21 +186,36 @@ function headCount(db: Db) {
 function dashboard(db: Db) {
   const activities=db.activities.map(a=>activityView(db,a)); const completedSessions=db.sessions.filter(s=>s.status==='Completed'); const coverage=coverageRows(db); const coveredAgentIds=new Set(coverage.filter(r=>r.status==='Covered').map(r=>r.agentId)); const requiredCount=activities.reduce((n,a)=>n+a.requiredAgents,0); const coveredCount=activities.reduce((n,a)=>n+a.coveredAgents,0);
   const coverageByLob=LOBS.map(lob=>{ const scoped=coverage.filter(r=>r.lob===lob); const covered=scoped.filter(r=>r.status==='Covered').length; return {lob,covered,required:scoped.length,percent:scoped.length?Math.round(covered/scoped.length*100):0}; });
-  return { completedSessions:completedSessions.length, agentsCovered:coveredAgentIds.size, pendingAgents:Math.max(requiredCount-coveredCount,0), activeHeadCount:activeAgents(db).filter(a=>a.employmentStatus==='Active').length, activeActivities:db.activities.filter(a=>['Active','In Progress'].includes(a.status)).length, activeUpdates:db.updates.filter(u=>['Open','In Progress'].includes(u.status)).length, coveragePercent:requiredCount?Math.round(coveredCount/requiredCount*100):0, trainingHours:Math.round(completedSessions.reduce((n,s)=>n+s.durationMinutes,0)/60*10)/10, coverageByLob, sessionsByTrainer:TRAINERS.map(trainer=>({trainer,sessions:completedSessions.filter(s=>s.trainerId===trainer.id).length})).sort((a,b)=>b.sessions-a.sessions || a.trainer.name.localeCompare(b.trainer.name)), needingAttention:activities.filter(a=>a.pendingAgents>0&&a.status!=='Archived').slice(0,5), recentActivity:db.logs.slice(0,8) };
+  return { completedSessions:completedSessions.length, agentsCovered:coveredAgentIds.size, pendingAgents:Math.max(requiredCount-coveredCount,0), activeHeadCount:activeAgents(db).filter(a=>a.employmentStatus==='Active').length, activeActivities:db.activities.filter(a=>['Active','In Progress'].includes(a.status)).length, activeBatches:db.batches.filter(b=>b.status==='In Training').length, newHiresInTraining:db.batchTrainees.filter(t=>!t.graduated && db.batches.some(b=>b.id===t.batchId&&b.status==='In Training')).length, coveragePercent:requiredCount?Math.round(coveredCount/requiredCount*100):0, trainingHours:Math.round(completedSessions.reduce((n,s)=>n+s.durationMinutes,0)/60*10)/10, coverageByLob, sessionsByTrainer:TRAINERS.map(trainer=>({trainer,sessions:completedSessions.filter(s=>s.trainerId===trainer.id).length})).sort((a,b)=>b.sessions-a.sessions || a.trainer.name.localeCompare(b.trainer.name)), needingAttention:activities.filter(a=>a.pendingAgents>0&&a.status!=='Archived').slice(0,5), recentActivity:db.logs.slice(0,8) };
 }
 function updatesView(db: Db) { return [...db.updates].sort((a,b)=>b.releaseDate.localeCompare(a.releaseDate)).map(u=>{ const views=u.linkedActivities.map(id=>db.activities.find(a=>a.id===id)).filter(Boolean).map(a=>activityView(db,a!)); return { ...u, coveragePercent:views.length?Math.round(views.reduce((n,a)=>n+a.coveragePercent,0)/views.length):0 }; }); }
-function workload(db: Db) { const month=new Date().toISOString().slice(0,7); return TRAINERS.map(trainer=>{ const sessions=db.sessions.filter(s=>s.trainerId===trainer.id); const recs=db.attendance.filter(r=>sessions.some(s=>s.id===r.sessionId)); return { trainer, completedSessions:sessions.filter(s=>s.status==='Completed').length, uniqueAgentsCovered:new Set(recs.filter(r=>r.status==='Attended').map(r=>r.agentId)).size, totalAttendance:recs.length, trainingHours:Math.round(sessions.filter(s=>s.status==='Completed').reduce((n,s)=>n+s.durationMinutes,0)/60*10)/10, activeSessions:sessions.filter(s=>['Planned','In Progress'].includes(s.status)).length, sessionsThisMonth:sessions.filter(s=>s.sessionDate.startsWith(month)).length, activitiesParticipated:new Set(sessions.map(s=>s.activityId)).size }; }); }
+function workload(db: Db) { const month=new Date().toISOString().slice(0,7); return TRAINERS.map(trainer=>{ const sessions=db.sessions.filter(s=>s.trainerId===trainer.id); const recs=db.attendance.filter(r=>sessions.some(s=>s.id===r.sessionId)); return { trainer, completedSessions:sessions.filter(s=>s.status==='Completed').length, uniqueAgentsCovered:new Set(recs.filter(r=>r.status==='Attended').map(r=>r.agentId)).size, totalAttendance:recs.length, trainingHours:Math.round(sessions.filter(s=>s.status==='Completed').reduce((n,s)=>n+s.durationMinutes,0)/60*10)/10, activeSessions:sessions.filter(s=>['Planned','In Progress'].includes(s.status)).length, sessionsThisMonth:sessions.filter(s=>s.sessionDate.startsWith(month)).length, activitiesParticipated:new Set(sessions.map(s=>s.activityId)).size }; }).sort((a,b)=>b.completedSessions-a.completedSessions || a.trainer.name.localeCompare(b.trainer.name)); }
 
+
+function trainerFor(id:number) { return TRAINERS.find(t=>t.id===id) ?? { id, name:'Former trainer', role:'Trainer' }; }
+function batchView(db:Db, b:Batch) {
+  const trainees=db.batchTrainees.filter(t=>t.batchId===b.id);
+  return { ...b, trainer:trainerFor(b.trainerId), traineeCount:trainees.length, passedCount:trainees.filter(t=>t.certificationStatus==='Passed').length, graduatedCount:trainees.filter(t=>t.graduated).length };
+}
+function batchDetail(db:Db,id:number) {
+  const b=db.batches.find(x=>x.id===id); if(!b) return undefined;
+  const trainees=db.batchTrainees.filter(t=>t.batchId===id).map(t=>({...t, attendance:db.batchAttendance.filter(a=>a.traineeId===t.id).sort((a,b)=>a.dayNumber-b.dayNumber)}));
+  return {...batchView(db,b), trainees};
+}
+function examLinksView(db:Db) { return [...db.examLinks].sort((a,b)=>b.createdAt.localeCompare(a.createdAt)); }
 const q = {
-  dashboard:['dashboard'], activities:['activities'], sessions:['sessions'], agents:['agents'], coverage:['coverage'], headCount:['head-count'], updates:['updates'], workload:['workload']
+  dashboard:['dashboard'], activities:['activities'], sessions:['sessions'], agents:['agents'], coverage:['coverage'], headCount:['head-count'], updates:['updates'], workload:['workload'], batches:['batches'], examLinks:['exam-links']
 } as const;
 export const getListActivitiesQueryKey = () => q.activities;
 export const getListSessionsQueryKey = () => q.sessions;
 export const getListAgentsQueryKey = () => q.agents;
 export const getListUpdatesQueryKey = () => q.updates;
+export const getListBatchesQueryKey = () => q.batches;
+export const getListExamLinksQueryKey = () => q.examLinks;
 export const getGetActivityQueryKey = (id:number) => ['activity',id] as const;
 export const getGetSessionQueryKey = (id:number) => ['session',id] as const;
 export const getGetAgentQueryKey = (id:number) => ['agent',id] as const;
+export const getGetBatchQueryKey = (id:number) => ['batch',id] as const;
 
 export function useGetDashboard(){ return useQuery({queryKey:q.dashboard,queryFn:()=>dashboard(loadDb())}); }
 export function useListActivities(){ return useQuery({queryKey:q.activities,queryFn:()=>loadDb().activities.map(a=>activityView(loadDb(),a)).sort((a,b)=>b.startDate.localeCompare(a.startDate)||a.name.localeCompare(b.name))}); }
@@ -183,6 +228,9 @@ export function useListCoverage(){ return useQuery({queryKey:q.coverage,queryFn:
 export function useGetHeadCount(){ return useQuery({queryKey:q.headCount,queryFn:()=>headCount(loadDb())}); }
 export function useListUpdates(){ return useQuery({queryKey:q.updates,queryFn:()=>updatesView(loadDb())}); }
 export function useListWorkload(){ return useQuery({queryKey:q.workload,queryFn:()=>workload(loadDb())}); }
+export function useListBatches(){ return useQuery({queryKey:q.batches,queryFn:()=>loadDb().batches.map(b=>batchView(loadDb(),b)).sort((a,b)=>b.startDate.localeCompare(a.startDate))}); }
+export function useGetBatch(id:number){ return useQuery({queryKey:getGetBatchQueryKey(id),queryFn:()=>batchDetail(loadDb(),id),enabled:Number.isFinite(id)}); }
+export function useListExamLinks(){ return useQuery({queryKey:q.examLinks,queryFn:()=>examLinksView(loadDb())}); }
 
 function useLocalMutation<TVars,TResult>(fn:(vars:TVars)=>TResult){ const qc=useQueryClient(); return useMutation({mutationFn:async(vars:TVars)=>fn(vars),onSuccess:()=>{ void qc.invalidateQueries(); }}); }
 export function useCreateAgent(){ return useLocalMutation<any,any>(({data})=>withDb(db=>{ if(db.agents.some(a=>a.hrId===data.hrId)) throw conflict('An agent with this HR ID already exists.'); const a:Agent={id:db.counters.agent++,hrId:data.hrId,mis:data.mis,name:data.name,lob:data.lob,employmentStatus:data.employmentStatus,dateAdded:data.dateAdded??new Date().toISOString().slice(0,10),notes:data.notes||null,archivedAt:null}; db.agents.push(a); log(db,'Agent Added',a.hrId); snapshot(db); return a; })); }
@@ -202,10 +250,42 @@ export function useReplaceSessionAttendance(){ return useLocalMutation<any,any>(
 export function useCreateUpdate(){ return useLocalMutation<any,any>(({data})=>withDb(db=>{ const id=db.counters.update++; const u:TrainingUpdate={id,updateId:`U${String(id).padStart(3,'0')}`,title:data.title,description:data.description||null,scope:data.scope,releaseDate:data.releaseDate,deadline:data.deadline||null,status:data.status,linkedActivities:data.linkedActivities??[],notes:data.notes||null};db.updates.push(u);log(db,'Update Created',u.updateId);return {...u,coveragePercent:0}; })); }
 export function useUpdateTrainingUpdate(){ return useLocalMutation<any,any>(({id,data})=>withDb(db=>{ const u=db.updates.find(x=>x.id===id);if(!u)throw new Error('Update not found');Object.assign(u,data);log(db,'Update Modified',u.updateId);return updatesView(db).find(x=>x.id===id); })); }
 
+
+export function useCreateBatch(){ return useLocalMutation<any,any>(({data})=>withDb(db=>{
+  const id=db.counters.batch++; const duration=Math.max(1,Number(data.durationDays)||1); const start=new Date(`${data.startDate}T00:00:00`); const dayDates=Array.from({length:duration},(_,i)=>{ const d=new Date(start); d.setDate(d.getDate()+i); return d.toISOString().slice(0,10); });
+  const b:Batch={id,batchId:`B${String(id).padStart(3,'0')}`,name:data.name,lob:data.lob,trainerId:Number(data.trainerId),startDate:data.startDate,durationDays:duration,status:'In Training',notes:data.notes||null,dayDates,createdAt:new Date().toISOString()}; db.batches.push(b);
+  const names=(data.traineeNames??[]).map((x:string)=>x.trim()).filter(Boolean); for(const name of names) db.batchTrainees.push({id:db.counters.batchTrainee++,batchId:id,name,mis:null,hrId:null,jw:null,email:null,portalPassword:null,phoneNumber:null,notes:null,quizScore:null,quizResult:'Pending',quizNotes:null,typingWpm:null,typingAccuracy:null,typingResult:'Pending',typingNotes:null,finalScore:null,finalNotes:null,certificationStatus:'Pending',graduated:false,agentId:null});
+  log(db,'Batch Created',`${b.batchId} · ${b.name}`); return batchView(db,b);
+})); }
+export function useUpdateBatch(){ return useLocalMutation<any,any>(({id,data})=>withDb(db=>{ const b=db.batches.find(x=>x.id===id); if(!b) throw new Error('Batch not found'); Object.assign(b,data); if(data.durationDays){ const duration=Math.max(1,Number(data.durationDays)); b.durationDays=duration; while(b.dayDates.length<duration){ const prev=b.dayDates.at(-1)??b.startDate; const d=new Date(`${prev}T00:00:00`); d.setDate(d.getDate()+1); b.dayDates.push(d.toISOString().slice(0,10)); } b.dayDates=b.dayDates.slice(0,duration); } log(db,'Batch Updated',b.batchId); return batchView(db,b); })); }
+export function useAddBatchTrainees(){ return useLocalMutation<any,any>(({id,data})=>withDb(db=>{ const b=db.batches.find(x=>x.id===id); if(!b) throw new Error('Batch not found'); const created=(data.names??[]).map((x:string)=>x.trim()).filter(Boolean).map((name:string)=>{ const t:BatchTrainee={id:db.counters.batchTrainee++,batchId:id,name,mis:null,hrId:null,jw:null,email:null,portalPassword:null,phoneNumber:null,notes:null,quizScore:null,quizResult:'Pending',quizNotes:null,typingWpm:null,typingAccuracy:null,typingResult:'Pending',typingNotes:null,finalScore:null,finalNotes:null,certificationStatus:'Pending',graduated:false,agentId:null}; db.batchTrainees.push(t); return t; }); log(db,'New Hires Added',`${b.batchId} · ${created.length} new hires`); return created; })); }
+export function useUpdateBatchTrainee(){ return useLocalMutation<any,any>(({id,data})=>withDb(db=>{ const t=db.batchTrainees.find(x=>x.id===id); if(!t) throw new Error('New hire not found'); Object.assign(t,data); const b=db.batches.find(x=>x.id===t.batchId); const keys=Object.keys(data??{}); const action=keys.some(k=>['jw','email','portalPassword','phoneNumber','mis','hrId','name','notes'].includes(k))?'Batch Information Updated':keys.some(k=>['quizScore','quizResult','quizNotes'].includes(k))?'Batch Quiz Updated':keys.some(k=>['typingWpm','typingAccuracy','typingResult','typingNotes'].includes(k))?'Batch Typing Test Updated':keys.some(k=>['certificationStatus','finalScore','finalNotes'].includes(k))?'Batch Result Updated':'New Hire Updated'; log(db,action,`${b?.batchId??'Batch'} · ${t.name}`); return {...t}; })); }
+export function useSaveBatchDayAttendance(){ return useLocalMutation<any,any>(({batchId,dayNumber,date,rows})=>withDb(db=>{ const b=db.batches.find(x=>x.id===batchId); if(!b) throw new Error('Batch not found'); const idx=Number(dayNumber)-1; if(idx>=0&&idx<b.durationDays) b.dayDates[idx]=date; for(const row of rows as any[]){ let rec=db.batchAttendance.find(a=>a.batchId===batchId&&a.traineeId===row.traineeId&&a.dayNumber===dayNumber); if(rec){rec.status=row.status;rec.notes=row.notes||null;rec.date=date;} else db.batchAttendance.push({id:db.counters.batchAttendance++,batchId,traineeId:row.traineeId,dayNumber,date,status:row.status,notes:row.notes||null}); } log(db,'Batch Attendance Updated',`${b.batchId} · Day ${dayNumber}`); return batchDetail(db,batchId); })); }
+export function useGraduateBatchTrainees(){ return useLocalMutation<any,any>(({batchId,traineeIds})=>withDb(db=>{ const b=db.batches.find(x=>x.id===batchId); if(!b) throw new Error('Batch not found'); const ids=new Set<number>(traineeIds); const targets=db.batchTrainees.filter(t=>t.batchId===batchId&&ids.has(t.id)); const graduated:any[]=[]; for(const t of targets){ if(t.graduated) continue; if(t.certificationStatus!=='Passed') throw conflict(`${t.name} has not passed certification.`); if(!t.hrId?.trim()||!t.mis?.trim()) throw conflict(`Add HR ID and MIS for ${t.name} before graduation.`); if(db.agents.some(a=>a.hrId===t.hrId)) throw conflict(`HR ID ${t.hrId} already exists in Agents.`); const a:Agent={id:db.counters.agent++,hrId:t.hrId.trim(),mis:t.mis.trim(),name:t.name,lob:b.lob,employmentStatus:'Active',dateAdded:new Date().toISOString().slice(0,10),notes:t.notes||`Graduated from ${b.name}`,archivedAt:null}; db.agents.push(a); t.graduated=true; t.agentId=a.id; graduated.push(a); }
+  if(graduated.length){ snapshot(db); log(db,'New Hires Graduated',`${b.batchId} · ${graduated.length} moved to Agents / Head Count`); } return graduated;
+})); }
+export function useDeleteBatch(){ return useLocalMutation<any,any>(({id})=>withDb(db=>{ const b=db.batches.find(x=>x.id===id); if(!b) throw new Error('Batch not found'); const traineeIds=db.batchTrainees.filter(t=>t.batchId===id).map(t=>t.id); db.batchAttendance=db.batchAttendance.filter(a=>!traineeIds.includes(a.traineeId)); db.batchTrainees=db.batchTrainees.filter(t=>t.batchId!==id); db.batches=db.batches.filter(x=>x.id!==id); log(db,'Batch Deleted',b.batchId); return {deleted:true}; })); }
+
+export function useCreateExamLink(){ return useLocalMutation<any,any>(({data})=>withDb(db=>{ let actor='Unknown'; try{actor=JSON.parse(sessionStorage.getItem('keeta-current-user-v1')||'null')?.name||'Unknown';}catch{} const e:ExamLink={id:db.counters.examLink++,title:data.title,lob:data.lob,type:data.type||'Quiz',url:data.url,notes:data.notes||null,status:data.status||'Active',addedBy:actor,createdAt:new Date().toISOString()}; db.examLinks.push(e); log(db,'Exam Link Added',e.title); return e; })); }
+export function useUpdateExamLink(){ return useLocalMutation<any,any>(({id,data})=>withDb(db=>{ const e=db.examLinks.find(x=>x.id===id); if(!e) throw new Error('Exam link not found'); Object.assign(e,data); log(db,'Exam Link Updated',e.title); return {...e}; })); }
+export function useDeleteExamLink(){ return useLocalMutation<any,any>(({id})=>withDb(db=>{ const e=db.examLinks.find(x=>x.id===id); if(!e) throw new Error('Exam link not found'); db.examLinks=db.examLinks.filter(x=>x.id!==id); log(db,'Exam Link Deleted',e.title); return {deleted:true}; })); }
+
 export function getAuthUsers(): AuthUser[] { return loadDb().users.map(u => ({...u})); }
 export function setUserPasswordHash(id:number, passwordHash:string) { return withDb(db=>{ const u=db.users.find(x=>x.id===id); if(!u) throw new Error('User not found'); u.passwordHash=passwordHash; log(db,'Password Set',u.name); return {...u}; }); }
 export function updateAuthUser(id:number, patch:Partial<AuthUser>) { return withDb(db=>{ const u=db.users.find(x=>x.id===id); if(!u) throw new Error('User not found'); if(u.isAdmin && (patch.frozen || patch.isAdmin===false)) throw new Error('Main admin cannot be frozen or demoted.'); Object.assign(u,patch); log(db, patch.passwordHash===null?'User Password Reset':patch.frozen===true?'User Frozen':patch.frozen===false?'User Unfrozen':'User Updated',u.name); return {...u}; }); }
-export function deleteAuthUser(id:number) { return withDb(db=>{ const u=db.users.find(x=>x.id===id); if(!u) throw new Error('User not found'); if(u.isAdmin) throw new Error('Main admin cannot be deleted.'); db.users=db.users.filter(x=>x.id!==id); log(db,'User Deleted',u.name); return true; }); }
+export function deleteAuthUser(id:number) { return withDb(db=>{
+  const u=db.users.find(x=>x.id===id);
+  if(!u) throw new Error('User not found');
+  if(u.isAdmin) throw new Error('Main admin cannot be deleted.');
+
+  // Removing a user means removing LOGIN ACCESS ONLY.
+  // Training history is intentionally preserved: sessions keep trainerId,
+  // attendance stays attached to those sessions, workload remains countable,
+  // and historical activity/logs continue to show the trainer's name.
+  db.users=db.users.filter(x=>x.id!==id);
+  log(db,'User Access Removed',u.name);
+  return { removedUserId:id, trainerName:u.name, historyPreserved:true };
+}); }
 
 // Optional helpers for browser-only backup/restore; no server or secret is used.
 export function exportLocalDatabase() { return JSON.stringify(loadDb(), null, 2); }

@@ -1,4 +1,4 @@
-import { Bell, BookOpenCheck, ChartNoAxesCombined, ClipboardList, FileBarChart, Gauge, HelpCircle, LayoutDashboard, LogOut, Menu, Settings, Users, X } from 'lucide-react';
+import { Bell, BookOpenCheck, ChartNoAxesCombined, ClipboardList, FileBarChart, Gauge, GraduationCap, HelpCircle, LayoutDashboard, Link2, LogOut, Menu, Settings, Users, X } from 'lucide-react';
 import { useState } from 'react';
 import { Link, useLocation } from 'wouter';
 import { getCurrentUser, logout } from '@/lib/user-auth';
@@ -10,7 +10,8 @@ const navigation = [
   { href: '/coverage', label: 'Coverage', icon: Gauge },
   { href: '/agents', label: 'Agents', icon: Users },
   { href: '/head-count', label: 'Head count', icon: ChartNoAxesCombined },
-  { href: '/updates', label: 'Updates', icon: Bell },
+  { href: '/batches', label: 'Batch', icon: GraduationCap },
+  { href: '/exam-links', label: 'Exam Link', icon: Link2 },
   { href: '/workload', label: 'Workload', icon: Users },
   { href: '/reports', label: 'Reports', icon: FileBarChart },
 ];

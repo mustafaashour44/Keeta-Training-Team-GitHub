@@ -20,7 +20,9 @@ import {
   SessionDetailPage,
   SessionsPage,
   SettingsPage,
-  UpdatesPage,
+  BatchDetailPage,
+  BatchesPage,
+  ExamLinksPage,
   WorkloadPage,
 } from '@/pages/operations-pages';
 import {
@@ -48,7 +50,9 @@ function Router() {
           <Route path="/agents" component={AgentsPage} />
           <Route path="/agents/:id" component={AgentDetailPage} />
           <Route path="/head-count" component={HeadCountPage} />
-          <Route path="/updates" component={UpdatesPage} />
+          <Route path="/batches" component={BatchesPage} />
+          <Route path="/batches/:id" component={BatchDetailPage} />
+          <Route path="/exam-links" component={ExamLinksPage} />
           <Route path="/workload" component={WorkloadPage} />
           <Route path="/reports" component={ReportsPage} />
           <Route path="/settings">{() => getCurrentUser()?.isAdmin ? <SettingsPage /> : <DashboardPage />}</Route>

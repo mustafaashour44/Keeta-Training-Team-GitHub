@@ -167,8 +167,11 @@ function requireOwnerOrAdmin(record:{createdByUserId?:number|null;createdByName?
 function activityCoverage(db: Db, activityId: number) {
   const activity = db.activities.find(a => a.id === activityId);
   const requiredIds = activity?.requiredAgentIds ?? [];
-  const completedSessionIds = db.sessions.filter(s => s.activityId === activityId && s.status === 'Completed').map(s => s.id);
-  const records = db.attendance.filter(r => completedSessionIds.includes(r.sessionId) && requiredIds.includes(r.agentId));
+  // Coverage is earned as soon as attendance is saved as Attended. A session does
+  // not need to be marked Completed first; session status is an operational state,
+  // while attendance is the source of truth for learner coverage.
+  const activitySessionIds = db.sessions.filter(s => s.activityId === activityId).map(s => s.id);
+  const records = db.attendance.filter(r => activitySessionIds.includes(r.sessionId) && requiredIds.includes(r.agentId));
   const coveredIds = new Set(records.filter(r => r.status === 'Attended').map(r => r.agentId));
   return { requiredIds, coveredIds, records };
 }
@@ -188,7 +191,7 @@ function coverageRows(db: Db) {
       const agent = db.agents.find(a=>a.id===agentId && !a.archivedAt); if (!agent) continue;
       const attended = cov.records.filter(r=>r.agentId===agentId && r.status==='Attended').sort((a,b)=>a.id-b.id); const last = attended.at(-1);
       const session = last ? db.sessions.find(s=>s.id===last.sessionId) : undefined; const trainer = session ? TRAINERS.find(t=>t.id===session.trainerId) ?? null : null;
-      rows.push({ id: activity.id*100000+agent.id, agentId:agent.id, hrId:agent.hrId, mis:agent.mis, agentName:agent.name, lob:agent.lob, activityId:activity.id, activityName:activity.name, trainer, status:last?'Covered':'Pending', result:last?.result ?? null, lastSessionDate:session?.sessionDate ?? null, sessionId:session?.sessionId ?? null });
+      rows.push({ id: activity.id*100000+agent.id, agentId:agent.id, hrId:agent.hrId, mis:agent.mis, agentName:agent.name, lob:agent.lob, activityId:activity.id, activityName:activity.name, trainer, status:last?'Covered':'Pending', result:last?.result ?? null, lastSessionDate:session?.sessionDate ?? null, sessionId:session?.sessionId ?? null, sessionDbId:session?.id ?? null, sessionTopic:session?.topic || session?.type || null, sessionStatus:session?.status ?? null });
     }
   }
   return rows;

@@ -1,4 +1,4 @@
-import { Bell, BookOpenCheck, ChartNoAxesCombined, ClipboardList, FileBarChart, Gauge, GraduationCap, HelpCircle, LayoutDashboard, Link2, LogOut, Menu, Settings, Users, X } from 'lucide-react';
+import { Bell, BookOpenCheck, ChartNoAxesCombined, ClipboardList, FileBarChart, Gauge, GraduationCap, LayoutDashboard, Link2, LogOut, Menu, Settings, Users, X } from 'lucide-react';
 import { useState } from 'react';
 import { Link, useLocation } from 'wouter';
 import { getCurrentUser, logout } from '@/lib/user-auth';
@@ -45,7 +45,6 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         </nav>
         <div className="mt-auto hidden border-t border-[hsl(var(--sidebar-border))] pt-5 md:block">
           {user?.isAdmin && <Link href="/settings" data-testid="link-nav-settings" className="sidebar-link flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium"><Settings size={17} /><span>Settings</span></Link>}
-          <button data-testid="button-help" className="sidebar-link mt-1 flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left text-sm font-medium"><HelpCircle size={17} /><span>Help center</span></button>
         </div>
       </aside>
       <div className="app-main min-w-0">

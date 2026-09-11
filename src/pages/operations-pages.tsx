@@ -224,6 +224,94 @@ function guessField(header: string): AgentField | undefined {
   const aliases: Record<AgentField, string[]> = { hrId: ['hrid', 'hrnumber', 'employeeid', 'employee no', 'employeeidnumber'], mis: ['mis', 'misid'], name: ['name', 'fullname', 'agentname'], lob: ['lob', 'lobskill', 'lineofbusiness', 'businessline'], employmentStatus: ['status', 'employmentstatus', 'employeestatus'], notes: ['notes', 'note', 'comment'] };
   return agentFields.find((field) => aliases[field].some((alias) => value === normalizedHeader(alias)));
 }
+
+
+type AgentImportSource = {
+  sheetName: string;
+  headerRowIndex: number;
+  rows: unknown[][];
+  hrIdIndex: number;
+  misIndex: number;
+  nameIndex: number;
+  lobIndex: number;
+  employmentStatusIndex: number;
+  resignedIndex: number;
+  score: number;
+};
+
+function findHeaderIndex(values: unknown[], aliases: string[]) {
+  const normalizedAliases = aliases.map(normalizedHeader);
+  return values.findIndex((value) => normalizedAliases.includes(normalizedHeader(value)));
+}
+
+function findAgentImportSource(workbook: XLSX.WorkBook): AgentImportSource | null {
+  const candidates: AgentImportSource[] = [];
+  for (const sheetName of workbook.SheetNames) {
+    const sheet = workbook.Sheets[sheetName];
+    if (!sheet) continue;
+    const rows = XLSX.utils.sheet_to_json<unknown[]>(sheet, { header: 1, defval: '', raw: false, blankrows: false });
+    const scanLimit = Math.min(rows.length, 60);
+    for (let headerRowIndex = 0; headerRowIndex < scanLimit; headerRowIndex += 1) {
+      const header = rows[headerRowIndex] ?? [];
+      const misIndex = findHeaderIndex(header, ['MIS', 'MIS ID']);
+      const nameIndex = findHeaderIndex(header, ['Name', 'Full Name', 'Agent Name', 'Employee Name']);
+      const lobSkillIndex = findHeaderIndex(header, ['LOB Skill', 'LOB Skills', 'Skill']);
+      const fallbackLobIndex = findHeaderIndex(header, ['LOB', 'Line of Business', 'Business Line']);
+      const lobIndex = lobSkillIndex >= 0 ? lobSkillIndex : fallbackLobIndex;
+      const employmentStatusIndex = findHeaderIndex(header, ['Employment status', 'Employment Status', 'Employee Status', 'Status']);
+      const resignedIndex = findHeaderIndex(header, ['Resigned/Transferred', 'Resigned / Transferred', 'Resigned Transferred', 'Resigned/Transfer']);
+
+      const hrCandidates = header
+        .map((value, index) => ({ index, value: normalizedHeader(value) }))
+        .filter(({ value }) => value === 'hrid' || value === 'employeeid' || value === 'agentid');
+      let hrIdIndex = -1;
+      if (hrCandidates.length) {
+        // Operational sheets can contain Manager/TL HR IDs before the agent HR ID.
+        // The agent HR ID is normally the exact HR ID closest to the MIS column.
+        const leftOfMis = misIndex >= 0 ? hrCandidates.filter((candidate) => candidate.index < misIndex) : [];
+        const pool = leftOfMis.length ? leftOfMis : hrCandidates;
+        hrIdIndex = [...pool].sort((a, b) => {
+          const target = misIndex >= 0 ? misIndex : nameIndex >= 0 ? nameIndex : 0;
+          return Math.abs(a.index - target) - Math.abs(b.index - target);
+        })[0]?.index ?? -1;
+      }
+
+      const requiredCount = [hrIdIndex, misIndex, nameIndex, lobIndex].filter((index) => index >= 0).length;
+      if (requiredCount < 3) continue;
+      const sampleRows = rows.slice(headerRowIndex + 1, headerRowIndex + 16);
+      const populatedSamples = sampleRows.filter((row) => [hrIdIndex, misIndex, nameIndex].filter((index) => index >= 0).some((index) => String(row?.[index] ?? '').trim())).length;
+      const score = requiredCount * 100
+        + (lobSkillIndex >= 0 ? 35 : 0)
+        + (resignedIndex >= 0 ? 30 : 0)
+        + (employmentStatusIndex >= 0 ? 8 : 0)
+        + populatedSamples
+        - headerRowIndex;
+      candidates.push({ sheetName, headerRowIndex, rows, hrIdIndex, misIndex, nameIndex, lobIndex, employmentStatusIndex, resignedIndex, score });
+    }
+  }
+  return candidates.sort((a, b) => b.score - a.score)[0] ?? null;
+}
+
+function canonicalAgentRows(source: AgentImportSource) {
+  let resignedSkipped = 0;
+  const output: Record<string, unknown>[] = [];
+  for (const row of source.rows.slice(source.headerRowIndex + 1)) {
+    const resignedValue = source.resignedIndex >= 0 ? String(row?.[source.resignedIndex] ?? '').trim() : '';
+    if (/\bresigned\b/i.test(resignedValue)) {
+      resignedSkipped += 1;
+      continue;
+    }
+    const record: Record<string, unknown> = {
+      'HR ID': source.hrIdIndex >= 0 ? row?.[source.hrIdIndex] ?? '' : '',
+      MIS: source.misIndex >= 0 ? row?.[source.misIndex] ?? '' : '',
+      Name: source.nameIndex >= 0 ? row?.[source.nameIndex] ?? '' : '',
+      'LOB Skill': source.lobIndex >= 0 ? row?.[source.lobIndex] ?? '' : '',
+      'Employment status': source.employmentStatusIndex >= 0 ? row?.[source.employmentStatusIndex] ?? '' : '',
+    };
+    if (Object.values(record).some((value) => String(value ?? '').trim())) output.push(record);
+  }
+  return { rows: output, resignedSkipped };
+}
 function normalizeImportedLob(value: string) {
   // Keep the website's five canonical LOB names, but accept the operational
   // LOB Skill labels used in Excel/Google Sheets during agent imports.
@@ -320,7 +408,27 @@ function AgentManagerModal({ onClose, initialTab = 'single', onSaved }: { onClos
   const submitBulk = (e: React.FormEvent) => { e.preventDefault(); setSubmitError(''); if (!validRows.length) return; bulkCreate.mutate({ data: { agents: validRows.map((row) => ({ ...row, lob: row.lob as any, employmentStatus: row.employmentStatus as any })) } as any }, { onSuccess: (result) => saveDone(`Imported ${result.created.length} valid agent${result.created.length === 1 ? '' : 's'}${invalidCount ? `; skipped ${invalidCount} row${invalidCount === 1 ? '' : 's'} with issues` : ''}${result.warnings.length ? `; ${result.warnings.length} MIS warning${result.warnings.length === 1 ? '' : 's'}` : ''}`), onError: (error: any) => setSubmitError(error?.response?.data?.error ?? error?.message ?? 'The agents could not be imported. Check the required fields and try again.') }); };
   const submitSingle = (e: React.FormEvent) => { e.preventDefault(); setSubmitError(''); create.mutate({ data: { ...single, lob: single.lob as any, employmentStatus: single.employmentStatus as any } as any }, { onSuccess: () => saveDone('Agent added successfully'), onError: (error: any) => setSubmitError(error?.response?.data?.error ?? error?.message ?? 'The agent could not be added. Try again.') }); };
   const parseRows = (text: string) => { const lines = text.split(/\r?\n/).map((line) => line.split('\t').map((cell) => cell.trim())).filter((line) => line.some(Boolean)); if (!lines.length) return; const first = lines[0]; const hasHeaders = first.some((cell) => Boolean(guessField(cell))); const sourceHeaders = hasHeaders ? first : ['hrId', 'mis', 'name', 'lob', 'employmentStatus', 'notes']; const sourceRows = (hasHeaders ? lines.slice(1) : lines).map((line) => sourceHeaders.reduce((row, header, index) => ({ ...row, [header]: line[index] ?? '' }), {} as Record<string, unknown>)); const nextMapping = Object.fromEntries(agentFields.map((field) => [field, sourceHeaders.find((header) => guessField(header) === field) ?? ''])) as Record<AgentField, string>; setRows(mapRows(sourceRows, nextMapping)); setPaste(text); };
-  const handleFile = async (file?: File) => { if (!file) return; const workbook = XLSX.read(await file.arrayBuffer(), { type: 'array' }); const sheet = workbook.Sheets[workbook.SheetNames[0]]; const json = XLSX.utils.sheet_to_json<Record<string, unknown>>(sheet, { defval: '' }); const sourceHeaders = json.length ? Object.keys(json[0]) : []; const resignedHeader = sourceHeaders.find((header) => normalizedHeader(header) === 'resignedtransferred'); const kept = json.filter((row) => !resignedHeader || !String(row[resignedHeader] ?? '').toLowerCase().includes('resigned')); setResignedSkipped(json.length-kept.length); const recognizedHeaders = sourceHeaders.filter((header) => { const field=guessField(header); return field && field!=='notes'; }); const matches=(field:AgentField)=>recognizedHeaders.filter((header)=>guessField(header)===field); const exactLobSkill=recognizedHeaders.find((header)=>normalizedHeader(header)==='lobskill'); const exactEmployment=recognizedHeaders.find((header)=>normalizedHeader(header)==='employmentstatus'); const nextMapping:Record<AgentField,string>={ hrId: matches('hrId').at(-1)??'', mis: matches('mis')[0]??'', name: matches('name')[0]??'', lob: exactLobSkill??matches('lob')[0]??'', employmentStatus: exactEmployment??matches('employmentStatus')[0]??'', notes: '' }; setHeaders(recognizedHeaders); setFileRows(kept); setMapping(nextMapping); };
+  const handleFile = async (file?: File) => {
+    if (!file) return;
+    setSubmitError(''); setResignedSkipped(0); setHeaders([]); setFileRows([]);
+    try {
+      const workbook = XLSX.read(await file.arrayBuffer(), { type: 'array' });
+      const source = findAgentImportSource(workbook);
+      if (!source || [source.hrIdIndex, source.misIndex, source.nameIndex, source.lobIndex].some((index) => index < 0)) {
+        setMapping({ hrId: '', mis: '', name: '', lob: '', employmentStatus: '', notes: '' });
+        setSubmitError('Could not detect the agent table. The file needs HR ID, MIS, Name, and LOB Skill (or LOB) headers on the same row.');
+        return;
+      }
+      const parsed = canonicalAgentRows(source);
+      const canonicalHeaders = ['HR ID', 'MIS', 'Name', 'LOB Skill', 'Employment status'];
+      setHeaders(canonicalHeaders);
+      setFileRows(parsed.rows);
+      setResignedSkipped(parsed.resignedSkipped);
+      setMapping({ hrId: 'HR ID', mis: 'MIS', name: 'Name', lob: 'LOB Skill', employmentStatus: 'Employment status', notes: '' });
+    } catch (error: any) {
+      setSubmitError(error?.message ? `The file could not be read: ${error.message}` : 'The file could not be read. Please use a valid CSV or XLSX file.');
+    }
+  };
   return <Modal title="Add agents" onClose={onClose}><div className="mb-5 flex gap-1 rounded-xl bg-[hsl(var(--muted))] p-1">{(['single', 'multiple', 'import'] as const).map((value) => <button key={value} onClick={() => setTab(value)} className={`flex-1 rounded-lg px-3 py-2 text-xs font-bold ${tab === value ? 'bg-[hsl(var(--card))] shadow-sm' : 'text-[hsl(var(--muted-foreground))]'}`} data-testid={`tab-agent-${value}`}>{value === 'single' ? 'Single agent' : value === 'multiple' ? 'Multiple agents' : 'Import file'}</button>)}</div>{tab === 'single' && <form onSubmit={submitSingle} className="space-y-4"><AgentFields form={single} setForm={setSingle} /><Button type="submit" disabled={create.isPending} testId="button-save-agent">{create.isPending ? 'Saving…' : 'Add agent'}</Button>{submitError&&<p className="text-xs font-semibold text-rose-700" role="alert">{submitError}</p>}</form>}{tab === 'multiple' && <form onSubmit={submitBulk} className="space-y-4"><div className="rounded-xl bg-[hsl(var(--accent)/.45)] p-3 text-xs leading-5 text-[hsl(var(--muted-foreground))]">Enter up to five agents below, add rows as needed, or paste tab-separated rows copied from Excel or Google Sheets.</div><textarea value={paste} onChange={(e) => setPaste(e.target.value)} rows={3} placeholder="HR ID&#9;MIS&#9;Name&#9;LOB&#9;Employment status&#9;Notes" className="w-full rounded-xl border border-[hsl(var(--input))] bg-[hsl(var(--background))] p-3 text-xs outline-none" data-testid="textarea-paste-agents" /><Button variant="outline" onClick={() => parseRows(paste)} disabled={!paste.trim()} testId="button-parse-pasted-agents">Use pasted rows</Button><div className="overflow-x-auto rounded-xl border border-[hsl(var(--border))]"><table className="w-full min-w-[720px] text-left text-xs"><thead className="bg-[hsl(var(--muted))]"><tr><th className="px-3 py-2">HR ID</th><th>MIS</th><th>Name</th><th>LOB</th><th>Status</th><th /></tr></thead><tbody>{rows.map((row, index) => <tr key={index} className="border-t border-[hsl(var(--border))]"><td className="p-2"><Input value={row.hrId} onChange={(e) => setRows(rows.map((item, i) => i === index ? { ...item, hrId: e.target.value } : item))} /></td><td className="p-2"><Input value={row.mis} onChange={(e) => setRows(rows.map((item, i) => i === index ? { ...item, mis: e.target.value } : item))} /></td><td className="p-2"><Input value={row.name} onChange={(e) => setRows(rows.map((item, i) => i === index ? { ...item, name: e.target.value } : item))} /></td><td className="p-2"><Select value={row.lob} onChange={(e) => setRows(rows.map((item, i) => i === index ? { ...item, lob: e.target.value } : item))}>{lobs.map((lob) => <option key={lob}>{lob}</option>)}</Select></td><td className="p-2"><Select value={row.employmentStatus} onChange={(e) => setRows(rows.map((item, i) => i === index ? { ...item, employmentStatus: e.target.value } : item))}>{Object.values(AgentStatus).map((status) => <option key={status}>{status}</option>)}</Select></td><td className="p-2"><button type="button" className="rounded-lg p-2 hover:bg-[hsl(var(--muted))]" onClick={() => setRows(rows.filter((_, i) => i !== index))} aria-label="Remove row"><X size={15} /></button></td></tr>)}</tbody></table></div><div className="flex flex-wrap items-center justify-between gap-2"><Button variant="outline" onClick={() => setRows([...rows, blankAgent()])} testId="button-add-agent-row"><Plus size={15} />Add row</Button><Button type="submit" disabled={bulkCreate.isPending || !validRows.length} testId="button-save-multiple-agents">{bulkCreate.isPending ? 'Importing…' : `Add ${filledRows.length || ''} agents`}</Button></div>{invalidCount > 0 && <p className="text-xs font-semibold text-rose-700">{invalidCount} row{invalidCount === 1 ? '' : 's'} need attention before they can be added.</p>}{submitError&&<p className="text-xs font-semibold text-rose-700" role="alert">{submitError}</p>}</form>}{tab === 'import' && <form onSubmit={submitBulk} className="space-y-4"><Field label="Choose a CSV or XLSX file"><Input type="file" accept=".csv,.xlsx" onChange={(e) => handleFile(e.target.files?.[0])} data-testid="input-agent-file" /></Field>{headers.length > 0 && <div className="space-y-4"><div><p className="mb-2 text-sm font-bold">Column mapping</p><div className="grid gap-3 sm:grid-cols-2">{agentFields.map((field) => <Field key={field} label={agentFieldLabels[field]}><Select value={mapping[field]} onChange={(e) => setMapping({ ...mapping, [field]: e.target.value })}><option value="">Skip column</option>{headers.map((header) => <option key={header} value={header}>{header}</option>)}</Select></Field>)}</div></div><div className="rounded-xl border border-[hsl(var(--border))]"><div className="flex flex-wrap items-center justify-between gap-2 border-b border-[hsl(var(--border))] px-3 py-2 text-sm font-bold"><span>Preview · {importRows.length} rows</span><span className="text-xs font-semibold text-[hsl(var(--muted-foreground))]">{validRows.length} valid · {invalidCount} need attention</span></div><div className="max-h-64 overflow-auto"><table className="w-full min-w-[760px] text-left text-xs"><thead className="sticky top-0 bg-[hsl(var(--muted))]"><tr>{agentFields.map((field) => <th className="px-3 py-2" key={field}>{agentFieldLabels[field]}</th>)}<th className="px-3 py-2">Validation</th></tr></thead><tbody>{importRows.map((row, index) => { const issues = rowIssues[index] ?? []; return <tr key={index} className={`border-t border-[hsl(var(--border))] ${issues.length ? 'bg-rose-50/90' : ''}`}>{agentFields.map((field) => <td className="px-3 py-2" key={field}>{row[field] || '—'}</td>)}<td className="px-3 py-2 font-semibold">{issues.length ? <span className="text-rose-700">{issues.join(' · ')}</span> : <span className="text-emerald-700">Valid</span>}</td></tr>; })}</tbody></table></div></div>{resignedSkipped > 0 && <p className="text-xs font-semibold text-slate-600">{resignedSkipped} resigned row{resignedSkipped === 1 ? '' : 's'} ignored automatically from Resigned/Transferred.</p>}{invalidCount > 0 && <p className="text-xs font-semibold text-rose-700">{invalidCount} row{invalidCount === 1 ? '' : 's'} will be skipped. Review the red rows above for the exact reason.</p>}{submitError && <p className="text-xs font-semibold text-rose-700">{submitError}</p>}<Button type="submit" disabled={bulkCreate.isPending || !validRows.length} testId="button-import-agent-file">{bulkCreate.isPending ? 'Importing…' : `Import ${validRows.length} valid agent${validRows.length === 1 ? '' : 's'}`}</Button></div>}</form>}</Modal>;
 }
 export function AgentsPage() { const isAdmin=Boolean(getCurrentUser()?.isAdmin); const [includeArchived, setIncludeArchived] = useState(false); const { data, isLoading, isError, refetch } = useListAgents({ includeArchived }); const [search, setSearch] = useState(''); const [tab, setTab] = useState<'single' | 'multiple' | 'import' | null>(null); const [edit, setEdit] = useState<any>(); const [confirm, setConfirm] = useState(false); const [notice, setNotice] = useState(''); const [selected, setSelected] = useState<number[]>([]); const [lob, setLob] = useState('All LOBs'); const [status, setStatus] = useState('All statuses'); const [view, setView] = useState<'active' | 'archived' | 'all'>('active'); const bulkUpdate = useBulkUpdateAgents(); const bulkDelete = useBulkDeleteAgents(); const qc = useQueryClient();

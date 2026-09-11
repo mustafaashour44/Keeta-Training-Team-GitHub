@@ -1,6 +1,7 @@
-import { Bell, BookOpenCheck, ChartNoAxesCombined, ClipboardList, FileBarChart, Gauge, HelpCircle, LayoutDashboard, Menu, Settings, Users, X } from 'lucide-react';
+import { Bell, BookOpenCheck, ChartNoAxesCombined, ClipboardList, FileBarChart, Gauge, HelpCircle, LayoutDashboard, LogOut, Menu, Settings, Users, X } from 'lucide-react';
 import { useState } from 'react';
 import { Link, useLocation } from 'wouter';
+import { getCurrentUser, logout } from '@/lib/user-auth';
 
 const navigation = [
   { href: '/', label: 'Overview', icon: LayoutDashboard },
@@ -17,6 +18,7 @@ const navigation = [
 export function AppShell({ children }: { children: React.ReactNode }) {
   const [location] = useLocation();
   const [mobileOpen, setMobileOpen] = useState(false);
+  const user = getCurrentUser();
   const current = navigation.find((item) => item.href === location)?.label ?? 'Overview';
   return (
     <div className="app-shell md:grid md:grid-cols-[246px_1fr]">
@@ -41,7 +43,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           })}
         </nav>
         <div className="mt-auto hidden border-t border-[hsl(var(--sidebar-border))] pt-5 md:block">
-          <Link href="/settings" data-testid="link-nav-settings" className="sidebar-link flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium"><Settings size={17} /><span>Settings</span></Link>
+          {user?.isAdmin && <Link href="/settings" data-testid="link-nav-settings" className="sidebar-link flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium"><Settings size={17} /><span>Settings</span></Link>}
           <button data-testid="button-help" className="sidebar-link mt-1 flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left text-sm font-medium"><HelpCircle size={17} /><span>Help center</span></button>
         </div>
       </aside>
@@ -54,8 +56,8 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           <div className="flex items-center gap-3">
             <button className="relative rounded-xl border border-[hsl(var(--border))] bg-[hsl(var(--card))] p-2.5" aria-label="Notifications" data-testid="button-notifications"><Bell size={17} /><span className="absolute right-2 top-2 size-1.5 rounded-full bg-[hsl(var(--secondary))]" /></button>
             <div className="flex items-center gap-2 border-l border-[hsl(var(--border))] pl-3">
-              <span className="grid size-9 place-items-center rounded-full bg-[hsl(var(--primary)/.14)] text-xs font-bold text-[hsl(var(--primary))]">MN</span>
-              <div className="hidden leading-tight sm:block"><p className="text-sm font-semibold">Keeta team</p><p className="text-[11px] text-[hsl(var(--muted-foreground))]">Shared workspace</p></div>
+              <span className="grid size-9 place-items-center rounded-full bg-[hsl(var(--primary)/.14)] text-xs font-bold text-[hsl(var(--primary))]">{user?.name.slice(0,2).toUpperCase() ?? 'KT'}</span>
+              <div className="hidden leading-tight sm:block"><p className="text-sm font-semibold">{user?.name ?? 'Keeta team'}</p><p className="text-[11px] text-[hsl(var(--muted-foreground))]">{user?.isAdmin ? 'Main Admin' : 'Trainer'}</p></div><button onClick={logout} title="Sign out" className="rounded-lg p-2 hover:bg-[hsl(var(--muted))]"><LogOut size={16}/></button>
             </div>
           </div>
         </header>

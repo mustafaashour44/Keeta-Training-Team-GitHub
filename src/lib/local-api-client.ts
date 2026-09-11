@@ -53,6 +53,7 @@ type Activity = { id: number; name: string; type: ActivityType | string; scope: 
 type Session = { id: number; sessionId: string; activityId: number; sessionDate: string; trainerId: number; lob: Lob; type: SessionType | string; topic: string | null; durationMinutes: number; status: SessionStatus | string; notes: string | null };
 type Attendance = { id: number; sessionId: number; agentId: number; status: AttendanceStatus | string; result: number | null; notes: string | null };
 type TrainingUpdate = { id: number; updateId: string; title: string; description: string | null; scope: Lob[]; releaseDate: string; deadline: string | null; status: UpdateStatus | string; linkedActivities: number[]; notes: string | null };
+export type AuthUser = { id: number; name: string; role: string; isAdmin: boolean; frozen: boolean; passwordHash: string | null; salt: string };
 type Log = { id: number; action: string; relatedRecord: string | null; trainer: string | null; createdAt: string };
 type Snapshot = { month: string; lob: Lob; active: number; inactive: number; transferred: number; onLeave: number; total: number };
 type Db = {
@@ -63,11 +64,13 @@ type Db = {
   updates: TrainingUpdate[];
   logs: Log[];
   snapshots: Snapshot[];
+  users: AuthUser[];
   counters: { agent: number; activity: number; session: number; attendance: number; update: number; log: number };
 };
 
 const emptyDb = (): Db => ({
   agents: [], activities: [], sessions: [], attendance: [], updates: [], logs: [], snapshots: [],
+  users: TRAINERS.map(t => ({ id: t.id, name: t.name, role: t.role, isAdmin: t.name === 'Mustafa', frozen: false, passwordHash: null, salt: `keeta-${t.id}-${t.name.toLowerCase()}-2026` })),
   counters: { agent: 1, activity: 1, session: 1, attendance: 1, update: 1, log: 1 },
 });
 
@@ -76,7 +79,7 @@ function loadDb(): Db {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (!raw) return emptyDb();
     const parsed = JSON.parse(raw) as Partial<Db>;
-    return { ...emptyDb(), ...parsed, counters: { ...emptyDb().counters, ...(parsed.counters ?? {}) } } as Db;
+    const base = emptyDb(); const merged = { ...base, ...parsed, counters: { ...base.counters, ...(parsed.counters ?? {}) } } as Db; if (!Array.isArray(merged.users) || !merged.users.length) merged.users = base.users; return merged;
   } catch {
     return emptyDb();
   }
@@ -84,7 +87,7 @@ function loadDb(): Db {
 function saveDb(db: Db) { localStorage.setItem(STORAGE_KEY, JSON.stringify(db)); pushToCloud(db); }
 function withDb<T>(fn: (db: Db) => T): T { const db = loadDb(); const out = fn(db); saveDb(db); return out; }
 function activeAgents(db: Db, includeArchived = false) { return db.agents.filter(a => includeArchived || !a.archivedAt).sort((a,b) => a.name.localeCompare(b.name)); }
-function log(db: Db, action: string, relatedRecord: string | null, trainer: string | null = null) { db.logs.unshift({ id: db.counters.log++, action, relatedRecord, trainer, createdAt: new Date().toISOString() }); db.logs = db.logs.slice(0, 100); }
+function log(db: Db, action: string, relatedRecord: string | null, trainer: string | null = null) { let actor = trainer; try { actor = JSON.parse(sessionStorage.getItem('keeta-current-user-v1') || 'null')?.name ?? trainer; } catch {} db.logs.unshift({ id: db.counters.log++, action, relatedRecord, trainer: actor, createdAt: new Date().toISOString() }); db.logs = db.logs.slice(0, 100); }
 function snapshot(db: Db) {
   const month = new Date().toISOString().slice(0,7);
   db.snapshots = db.snapshots.filter(s => s.month !== month);
@@ -153,7 +156,7 @@ function headCount(db: Db) {
 function dashboard(db: Db) {
   const activities=db.activities.map(a=>activityView(db,a)); const completedSessions=db.sessions.filter(s=>s.status==='Completed'); const coverage=coverageRows(db); const coveredAgentIds=new Set(coverage.filter(r=>r.status==='Covered').map(r=>r.agentId)); const requiredCount=activities.reduce((n,a)=>n+a.requiredAgents,0); const coveredCount=activities.reduce((n,a)=>n+a.coveredAgents,0);
   const coverageByLob=LOBS.map(lob=>{ const scoped=coverage.filter(r=>r.lob===lob); const covered=scoped.filter(r=>r.status==='Covered').length; return {lob,covered,required:scoped.length,percent:scoped.length?Math.round(covered/scoped.length*100):0}; });
-  return { completedSessions:completedSessions.length, agentsCovered:coveredAgentIds.size, pendingAgents:Math.max(requiredCount-coveredCount,0), activeHeadCount:activeAgents(db).filter(a=>a.employmentStatus==='Active').length, activeActivities:db.activities.filter(a=>['Active','In Progress'].includes(a.status)).length, activeUpdates:db.updates.filter(u=>['Open','In Progress'].includes(u.status)).length, coveragePercent:requiredCount?Math.round(coveredCount/requiredCount*100):0, trainingHours:Math.round(completedSessions.reduce((n,s)=>n+s.durationMinutes,0)/60*10)/10, coverageByLob, sessionsByTrainer:TRAINERS.map(trainer=>({trainer,sessions:completedSessions.filter(s=>s.trainerId===trainer.id).length})), needingAttention:activities.filter(a=>a.pendingAgents>0&&a.status!=='Archived').slice(0,5), recentActivity:db.logs.slice(0,8) };
+  return { completedSessions:completedSessions.length, agentsCovered:coveredAgentIds.size, pendingAgents:Math.max(requiredCount-coveredCount,0), activeHeadCount:activeAgents(db).filter(a=>a.employmentStatus==='Active').length, activeActivities:db.activities.filter(a=>['Active','In Progress'].includes(a.status)).length, activeUpdates:db.updates.filter(u=>['Open','In Progress'].includes(u.status)).length, coveragePercent:requiredCount?Math.round(coveredCount/requiredCount*100):0, trainingHours:Math.round(completedSessions.reduce((n,s)=>n+s.durationMinutes,0)/60*10)/10, coverageByLob, sessionsByTrainer:TRAINERS.map(trainer=>({trainer,sessions:completedSessions.filter(s=>s.trainerId===trainer.id).length})).sort((a,b)=>b.sessions-a.sessions || a.trainer.name.localeCompare(b.trainer.name)), needingAttention:activities.filter(a=>a.pendingAgents>0&&a.status!=='Archived').slice(0,5), recentActivity:db.logs.slice(0,8) };
 }
 function updatesView(db: Db) { return [...db.updates].sort((a,b)=>b.releaseDate.localeCompare(a.releaseDate)).map(u=>{ const views=u.linkedActivities.map(id=>db.activities.find(a=>a.id===id)).filter(Boolean).map(a=>activityView(db,a!)); return { ...u, coveragePercent:views.length?Math.round(views.reduce((n,a)=>n+a.coveragePercent,0)/views.length):0 }; }); }
 function workload(db: Db) { const month=new Date().toISOString().slice(0,7); return TRAINERS.map(trainer=>{ const sessions=db.sessions.filter(s=>s.trainerId===trainer.id); const recs=db.attendance.filter(r=>sessions.some(s=>s.id===r.sessionId)); return { trainer, completedSessions:sessions.filter(s=>s.status==='Completed').length, uniqueAgentsCovered:new Set(recs.filter(r=>r.status==='Attended').map(r=>r.agentId)).size, totalAttendance:recs.length, trainingHours:Math.round(sessions.filter(s=>s.status==='Completed').reduce((n,s)=>n+s.durationMinutes,0)/60*10)/10, activeSessions:sessions.filter(s=>['Planned','In Progress'].includes(s.status)).length, sessionsThisMonth:sessions.filter(s=>s.sessionDate.startsWith(month)).length, activitiesParticipated:new Set(sessions.map(s=>s.activityId)).size }; }); }
@@ -198,6 +201,11 @@ export function useDeleteSession(){ return useLocalMutation<any,any>(({id})=>wit
 export function useReplaceSessionAttendance(){ return useLocalMutation<any,any>(({id,data})=>withDb(db=>{ const s=db.sessions.find(x=>x.id===id);if(!s)throw new Error('Session not found'); const incoming=data as any[]; const incomingIds=new Set(incoming.map(r=>r.agentId)); db.attendance=db.attendance.filter(r=>r.sessionId!==id||incomingIds.has(r.agentId)); for(const r of incoming){ const existing=db.attendance.find(a=>a.sessionId===id&&a.agentId===r.agentId); if(existing){ existing.status=r.status; existing.result=r.status==='Attended'?(r.result??null):null; existing.notes=r.notes||null; } else { db.attendance.push({id:db.counters.attendance++,sessionId:id,agentId:r.agentId,status:r.status,result:r.status==='Attended'?(r.result??null):null,notes:r.notes||null}); } } log(db,'Attendance Updated',s.sessionId);return sessionDetail(db,id)?.attendance??[]; })); }
 export function useCreateUpdate(){ return useLocalMutation<any,any>(({data})=>withDb(db=>{ const id=db.counters.update++; const u:TrainingUpdate={id,updateId:`U${String(id).padStart(3,'0')}`,title:data.title,description:data.description||null,scope:data.scope,releaseDate:data.releaseDate,deadline:data.deadline||null,status:data.status,linkedActivities:data.linkedActivities??[],notes:data.notes||null};db.updates.push(u);log(db,'Update Created',u.updateId);return {...u,coveragePercent:0}; })); }
 export function useUpdateTrainingUpdate(){ return useLocalMutation<any,any>(({id,data})=>withDb(db=>{ const u=db.updates.find(x=>x.id===id);if(!u)throw new Error('Update not found');Object.assign(u,data);log(db,'Update Modified',u.updateId);return updatesView(db).find(x=>x.id===id); })); }
+
+export function getAuthUsers(): AuthUser[] { return loadDb().users.map(u => ({...u})); }
+export function setUserPasswordHash(id:number, passwordHash:string) { return withDb(db=>{ const u=db.users.find(x=>x.id===id); if(!u) throw new Error('User not found'); u.passwordHash=passwordHash; log(db,'Password Set',u.name); return {...u}; }); }
+export function updateAuthUser(id:number, patch:Partial<AuthUser>) { return withDb(db=>{ const u=db.users.find(x=>x.id===id); if(!u) throw new Error('User not found'); if(u.isAdmin && (patch.frozen || patch.isAdmin===false)) throw new Error('Main admin cannot be frozen or demoted.'); Object.assign(u,patch); log(db, patch.passwordHash===null?'User Password Reset':patch.frozen===true?'User Frozen':patch.frozen===false?'User Unfrozen':'User Updated',u.name); return {...u}; }); }
+export function deleteAuthUser(id:number) { return withDb(db=>{ const u=db.users.find(x=>x.id===id); if(!u) throw new Error('User not found'); if(u.isAdmin) throw new Error('Main admin cannot be deleted.'); db.users=db.users.filter(x=>x.id!==id); log(db,'User Deleted',u.name); return true; }); }
 
 // Optional helpers for browser-only backup/restore; no server or secret is used.
 export function exportLocalDatabase() { return JSON.stringify(loadDb(), null, 2); }

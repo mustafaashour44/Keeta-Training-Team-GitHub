@@ -1,10 +1,12 @@
-import { useEffect, type ReactNode } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { ErrorBoundary } from '@/components/error-boundary';
 import { Toaster } from '@/components/ui/toaster';
 import { TooltipProvider } from '@/components/ui/tooltip';
 import NotFound from '@/pages/not-found';
 import { AppShell } from '@/components/app-shell';
+import { AuthGate } from '@/components/auth-gate';
+import { getCurrentUser } from '@/lib/user-auth';
 import { initCloudSync } from '@/lib/local-api-client';
 import {
   ActivityDetailPage,
@@ -49,7 +51,7 @@ function Router() {
           <Route path="/updates" component={UpdatesPage} />
           <Route path="/workload" component={WorkloadPage} />
           <Route path="/reports" component={ReportsPage} />
-          <Route path="/settings" component={SettingsPage} />
+          <Route path="/settings">{() => getCurrentUser()?.isAdmin ? <SettingsPage /> : <DashboardPage />}</Route>
           <Route component={NotFound} />
         </Switch>
       </AppShell>
@@ -63,20 +65,20 @@ function RoutedErrorBoundary({ children }: { children: ReactNode }) {
 }
 
 function App() {
+  const [cloudReady, setCloudReady] = useState(false);
   // Pull the shared team database from the cloud on load, then stay
   // subscribed so changes made by teammates on other devices show up
   // here automatically.
   useEffect(() => {
-    initCloudSync(() => {
-      void queryClient.invalidateQueries();
-    });
+    initCloudSync(() => { void queryClient.invalidateQueries(); window.dispatchEvent(new Event('keeta-auth-change')); }).finally(() => { setCloudReady(true); window.dispatchEvent(new Event('keeta-auth-change')); });
   }, []);
 
+  if (!cloudReady) return <div className="min-h-screen grid place-items-center bg-[hsl(var(--background))]"><div className="text-center"><div className="mx-auto grid size-12 place-items-center rounded-2xl bg-emerald-700 text-2xl font-black text-amber-300">K</div><p className="mt-4 text-sm font-semibold">Loading team workspace…</p></div></div>;
   return (
     <QueryClientProvider client={queryClient}>
       <TooltipProvider>
         <WouterRouter base={import.meta.env.BASE_URL.replace(/\/$/, '')}>
-          <Router />
+          <AuthGate><Router /></AuthGate>
         </WouterRouter>
         <Toaster />
       </TooltipProvider>

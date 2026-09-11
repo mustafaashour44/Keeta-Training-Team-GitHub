@@ -174,9 +174,9 @@ function sessionDetail(db: Db, id: number) {
 function agentDetail(db: Db, id: number) {
   const a = db.agents.find(x=>x.id===id); if (!a) return undefined;
   const records = db.attendance.filter(r=>r.agentId===id);
-  const history = records.map(r=>{ const s=db.sessions.find(x=>x.id===r.sessionId); const ac=s?db.activities.find(x=>x.id===s.activityId):undefined; const t=s?TRAINERS.find(x=>x.id===s.trainerId):undefined; return { activityName:ac?.name??'Unknown activity', sessionId:s?.sessionId??'', trainer:t?.name??'', lob:a.lob, date:s?.sessionDate??'', result:r.result, attendanceStatus:r.status, coverageStatus:r.status==='Attended'?'Covered':'Pending' }; });
+  const history = records.map(r=>{ const s=db.sessions.find(x=>x.id===r.sessionId); const ac=s?db.activities.find(x=>x.id===s.activityId):undefined; const t=s?TRAINERS.find(x=>x.id===s.trainerId):undefined; return { activityName:ac?.name??'Unknown activity', sessionId:s?.sessionId??'', sessionTopic:s?.topic||s?.type||'', sessionType:s?.type??'', trainer:t?.name??'', lob:a.lob, date:s?.sessionDate??'', quizScore:r.result, result:r.result, notes:r.notes??'', attendanceStatus:r.status, coverageStatus:r.status==='Attended'?'Covered':'Pending' }; }).sort((x,y)=>String(y.date).localeCompare(String(x.date)));
   const completed = new Set(history.filter(h=>h.coverageStatus==='Covered').map(h=>h.activityName));
-  return { ...a, totalSessions:records.length, lastTrainingDate:history.map(h=>h.date).filter(Boolean).sort().at(-1)??null, pendingActivities:Math.max(db.activities.filter(x=>x.status!=='Archived').length-completed.size,0), completedActivities:completed.size, history };
+  return { ...a, totalSessions:records.filter(r=>r.status==='Attended').length, lastTrainingDate:history.map(h=>h.date).filter(Boolean).sort().at(-1)??null, pendingActivities:Math.max(db.activities.filter(x=>x.status!=='Archived').length-completed.size,0), completedActivities:completed.size, history };
 }
 function headCount(db: Db) {
   const agents=activeAgents(db); const rows=LOBS.map(lob=>{ const x=agents.filter(a=>a.lob===lob); return { lob, active:x.filter(a=>a.employmentStatus==='Active').length, inactive:x.filter(a=>a.employmentStatus==='Inactive').length, transferred:x.filter(a=>a.employmentStatus==='Transferred').length, onLeave:x.filter(a=>a.employmentStatus==='On Leave').length, total:x.length }; });

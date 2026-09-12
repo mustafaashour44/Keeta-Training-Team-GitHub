@@ -371,19 +371,92 @@ export function deleteAuthUser(id:number) { return withDb(db=>{
 // Full-workspace backup / restore. These are intentionally admin-facing helpers.
 // A backup includes the complete shared workspace state: agents, activities, sessions,
 // attendance, batches, exams/question banks, logs, snapshots, users and counters.
-export function exportWorkspaceBackup() {
-  requireAdmin('download a full system backup');
+export type BackupRange = { from?: string | null; to?: string | null };
+
+function dateOnly(value?: string | null) {
+  if (!value) return '';
+  return String(value).slice(0, 10);
+}
+function backupDateInRange(value: string | null | undefined, range?: BackupRange) {
+  if (!range?.from && !range?.to) return true;
+  const d = dateOnly(value);
+  if (!d) return false;
+  return (!range.from || d >= range.from) && (!range.to || d <= range.to);
+}
+function backupPeriodOverlaps(start: string | null | undefined, end: string | null | undefined, range?: BackupRange) {
+  if (!range?.from && !range?.to) return true;
+  const s = dateOnly(start); const e = dateOnly(end) || s;
+  if (!s && !e) return false;
+  return (!range.from || e >= range.from) && (!range.to || s <= range.to);
+}
+function buildWorkspaceBackup(range?: BackupRange) {
+  const db = loadDb();
+  const filtered = Boolean(range?.from || range?.to);
+  if (!filtered) return db;
+
+  const sessions = db.sessions.filter(s => backupDateInRange(s.sessionDate, range));
+  const selectedSessionIds = new Set(sessions.map(s => s.id));
+  const selectedActivityIds = new Set(sessions.map(s => s.activityId));
+  db.activities.forEach(a => { if (backupPeriodOverlaps(a.startDate, a.endDate, range)) selectedActivityIds.add(a.id); });
+  const activities = db.activities.filter(a => selectedActivityIds.has(a.id));
+
+  const attendance = db.attendance.filter(a => selectedSessionIds.has(a.sessionId));
+  const selectedAgentIds = new Set<number>();
+  activities.forEach(a => a.requiredAgentIds.forEach(id => selectedAgentIds.add(id)));
+  attendance.forEach(a => selectedAgentIds.add(a.agentId));
+  db.agents.forEach(a => { if (backupDateInRange(a.dateAdded, range)) selectedAgentIds.add(a.id); });
+
+  const batches = db.batches.filter(b => {
+    const dates = (b.dayDates ?? []).filter(Boolean);
+    if (dates.some(d => backupDateInRange(d, range))) return true;
+    const last = dates[dates.length - 1] ?? b.startDate;
+    return backupPeriodOverlaps(b.startDate, last, range);
+  });
+  const selectedBatchIds = new Set(batches.map(b => b.id));
+  const batchTrainees = db.batchTrainees.filter(t => selectedBatchIds.has(t.batchId));
+  batchTrainees.forEach(t => { if (t.sourceAgentId) selectedAgentIds.add(t.sourceAgentId); if (t.agentId) selectedAgentIds.add(t.agentId); });
+  const batchAttendance = db.batchAttendance.filter(x => selectedBatchIds.has(x.batchId) && backupDateInRange(x.date, range));
+  const batchQuiz = db.batchQuiz.filter(x => selectedBatchIds.has(x.batchId) && backupDateInRange(x.date, range));
+  const batchTyping = db.batchTyping.filter(x => selectedBatchIds.has(x.batchId) && backupDateInRange(x.date, range));
+
+  const agents = db.agents.filter(a => selectedAgentIds.has(a.id));
+  const examLinks = db.examLinks.filter(e => backupDateInRange(e.createdAt, range));
+  const logs = db.logs.filter(l => backupDateInRange(l.createdAt, range));
+  const snapshots = db.snapshots.filter(s => {
+    const monthStart = `${s.month}-01`;
+    const monthEnd = `${s.month}-31`;
+    return backupPeriodOverlaps(monthStart, monthEnd, range);
+  });
+  const updates = db.updates.filter(u => backupPeriodOverlaps(u.releaseDate, u.deadline ?? u.releaseDate, range));
+
+  return {
+    ...db,
+    agents, activities, sessions, attendance, updates, batches, batchTrainees, batchAttendance, batchQuiz, batchTyping, examLinks, logs, snapshots,
+    // Keep all users and counters so ownership and IDs remain understandable in the archive.
+    users: db.users,
+    counters: db.counters,
+  } as Db;
+}
+
+export function exportWorkspaceBackup(range?: BackupRange) {
+  requireAdmin('download a system backup');
+  const filtered = Boolean(range?.from || range?.to);
   return JSON.stringify({
     format: 'keeta-training-team-backup',
-    version: 1,
+    version: 2,
     exportedAt: new Date().toISOString(),
     storageKey: STORAGE_KEY,
-    data: loadDb(),
+    scope: filtered ? 'date-range' : 'all-period',
+    range: filtered ? { from: range?.from ?? null, to: range?.to ?? null } : null,
+    data: buildWorkspaceBackup(range),
   }, null, 2);
 }
 export function importWorkspaceBackup(json: string) {
   const actor = requireAdmin('restore a full system backup');
   const parsed = JSON.parse(json) as any;
+  if (parsed?.format === 'keeta-training-team-backup' && parsed?.scope === 'date-range') {
+    throw conflict('Date-range backups are archive/export files only. Restore requires an All period backup so existing workspace data is not accidentally erased.');
+  }
   const payload = parsed?.format === 'keeta-training-team-backup' ? parsed.data : parsed;
   if (!payload || typeof payload !== 'object' || !Array.isArray(payload.agents) || !Array.isArray(payload.activities) || !Array.isArray(payload.sessions) || !Array.isArray(payload.users)) {
     throw conflict('This file is not a valid Keeta Training Team backup.');

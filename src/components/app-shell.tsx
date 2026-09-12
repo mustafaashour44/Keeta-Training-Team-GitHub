@@ -11,7 +11,7 @@ const navigation = [
   { href: '/agents', label: 'Agents', icon: Users },
   { href: '/head-count', label: 'Head count', icon: ChartNoAxesCombined },
   { href: '/batches', label: 'Batch', icon: GraduationCap },
-  { href: '/exam-links', label: 'Exam Link', icon: Link2 },
+  { href: '/exam-links', label: 'Exam', icon: Link2 },
   { href: '/workload', label: 'Workload', icon: Users },
   { href: '/reports', label: 'Reports', icon: FileBarChart },
 ];

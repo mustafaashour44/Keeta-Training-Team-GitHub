@@ -7,6 +7,7 @@ export const Lob = {
   'DC&Calls-Side': 'DC&Calls-Side',
   Kfood: 'Kfood',
   CM: 'CM',
+  'SA C-side': 'SA C-side',
 } as const;
 export type Lob = typeof Lob[keyof typeof Lob];
 
@@ -202,10 +203,16 @@ function activityDetail(db: Db, id: number) {
   const covered = [...cov.coveredIds].map(agentId => {
     const agent = db.agents.find(x=>x.id===agentId); if (!agent) return null;
     const rec = cov.records.filter(r=>r.agentId===agentId && r.status==='Attended').sort((x,y)=>x.id-y.id).at(-1); const session = rec ? db.sessions.find(s=>s.id===rec.sessionId) : undefined; const trainer = session ? TRAINERS.find(t=>t.id===session.trainerId) ?? null : null;
-    return { ...agent, activityName:a.name, trainer, result:rec?.result ?? null, status:'Covered', lastSessionDate:session?.sessionDate ?? null, sessionId:session?.sessionId ?? null };
+    return { ...agent, activityName:a.name, trainer, result:rec?.result ?? null, attendanceStatus:'Attended', status:'Covered', lastSessionDate:session?.sessionDate ?? null, sessionId:session?.sessionId ?? null, sessionDbId:session?.id ?? null, sessionTopic:session?.topic || session?.type || null };
   }).filter(Boolean);
-  const pending = agents.filter(x=>cov.requiredIds.includes(x.id) && !cov.coveredIds.has(x.id));
-  return { ...activityView(db,a), sessions: db.sessions.filter(s=>s.activityId===id).map(s=>sessionView(db,s)), covered, pending };
+  const pending = agents.filter(x=>cov.requiredIds.includes(x.id) && !cov.coveredIds.has(x.id)).map(agent => {
+    const rec = cov.records.filter(r=>r.agentId===agent.id && r.status==='Absent').sort((x,y)=>x.id-y.id).at(-1);
+    const session = rec ? db.sessions.find(s=>s.id===rec.sessionId) : undefined;
+    const trainer = session ? TRAINERS.find(t=>t.id===session.trainerId) ?? null : null;
+    return { ...agent, activityName:a.name, trainer, result:rec?.result ?? null, attendanceStatus:rec ? 'Absent' : 'Not marked', status:'Pending', lastSessionDate:session?.sessionDate ?? null, sessionId:session?.sessionId ?? null, sessionDbId:session?.id ?? null, sessionTopic:session?.topic || session?.type || null };
+  });
+  const absent = pending.filter((agent:any)=>agent.attendanceStatus==='Absent');
+  return { ...activityView(db,a), sessions: db.sessions.filter(s=>s.activityId===id).map(s=>sessionView(db,s)), covered, pending, absent };
 }
 function sessionDetail(db: Db, id: number) {
   const s = db.sessions.find(x=>x.id===id); if (!s) return undefined;

@@ -290,9 +290,67 @@ export function ActivitiesPage() {
 function SessionForm({ onClose, initial, activityId }: { onClose: () => void; initial?: any; activityId?: number }) {
   const create = useCreateSession(); const update = useUpdateSession(); const qc = useQueryClient(); const { data: activities } = useListActivities();
   const [form, setForm] = useState({ activityId: initial?.activityId ?? activityId ?? activities?.[0]?.id ?? 0, sessionDate: initial?.sessionDate?.slice(0, 10) ?? '', trainerId: initial?.trainer?.id ?? 1, lob: initial?.lob ?? lobs[0], type: initial?.type ?? SessionType.Refresher, topic: initial?.topic ?? '', durationMinutes: initial?.durationMinutes ?? 60, status: initial?.status ?? SessionStatus.Planned, notes: initial?.notes ?? '' });
-  const submit = (e: React.FormEvent) => { e.preventDefault(); const done = () => { qc.invalidateQueries({ queryKey: getListSessionsQueryKey() }); if (activityId) qc.invalidateQueries({ queryKey: getGetActivityQueryKey(activityId) }); onClose(); }; const payload = { ...form, durationMinutes: Number(form.durationMinutes) }; if (initial) update.mutate({ id: initial.id, data: payload }, { onSuccess: done }); else create.mutate({ data: payload }, { onSuccess: done }); };
-  return <Modal title={initial ? 'Edit session' : 'Schedule a session'} onClose={onClose}><form onSubmit={submit} className="space-y-4"><Field label="Activity"><Select required value={form.activityId} onChange={(e) => setForm({ ...form, activityId: Number(e.target.value) })} data-testid="select-session-activity">{(activities ?? []).map((x) => <option value={x.id} key={x.id}>{x.name}</option>)}</Select></Field><div className="grid gap-4 sm:grid-cols-2"><Field label="Date"><Input required type="date" value={form.sessionDate} onChange={(e) => setForm({ ...form, sessionDate: e.target.value })} data-testid="input-session-date" /></Field><Field label="Trainer"><Select value={form.trainerId} onChange={(e) => setForm({ ...form, trainerId: Number(e.target.value) })} data-testid="select-session-trainer">{trainers.map((x) => <option value={x.id} key={x.id}>{x.name}</option>)}</Select></Field></div><div className="grid gap-4 sm:grid-cols-3"><Field label="LOB"><Select value={form.lob} onChange={(e) => setForm({ ...form, lob: e.target.value as any })} data-testid="select-session-lob">{lobs.map((x) => <option key={x}>{x}</option>)}</Select></Field><Field label="Type"><Select value={form.type} onChange={(e) => setForm({ ...form, type: e.target.value as any })} data-testid="select-session-type">{Object.values(SessionType).map((x) => <option key={x}>{x}</option>)}</Select></Field><Field label="Duration (min)"><Input type="number" min="0" value={form.durationMinutes} onChange={(e) => setForm({ ...form, durationMinutes: Number(e.target.value) })} data-testid="input-session-duration" /></Field></div><Field label="Topic"><Input value={form.topic} onChange={(e) => setForm({ ...form, topic: e.target.value })} placeholder="What will this session cover?" data-testid="input-session-topic" /></Field><Field label="Notes"><textarea value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} rows={3} className="w-full rounded-xl border border-[hsl(var(--input))] bg-[hsl(var(--background))] px-3.5 py-2.5 text-sm" data-testid="input-session-notes" /></Field><Button type="submit" disabled={create.isPending || update.isPending} testId="button-save-session">{create.isPending || update.isPending ? 'Saving…' : 'Save session'}</Button></form></Modal>;
+  const [selectedAgentIds, setSelectedAgentIds] = useState<number[]>(initial?.attendance?.map((row:any)=>row.agentId) ?? []);
+  const [agentSearch, setAgentSearch] = useState('');
+  const [agentLobFilter, setAgentLobFilter] = useState('All');
+  const { data: selectedActivity } = useGetActivity(Number(form.activityId));
+
+  useEffect(() => {
+    if (!form.activityId && activities?.length) {
+      const first = activities[0];
+      setForm((prev) => ({ ...prev, activityId: first.id, lob: first.scope?.[0] ?? prev.lob }));
+    }
+  }, [activities, form.activityId]);
+
+  const eligibleAgents = useMemo(() => (selectedActivity?.pending ?? []) as any[], [selectedActivity]);
+  const visibleAgents = useMemo(() => {
+    const needle = agentSearch.trim().toLowerCase();
+    return eligibleAgents
+      .filter((agent:any) => agentLobFilter === 'All' || agent.lob === agentLobFilter)
+      .filter((agent:any) => !needle || `${agent.name} ${agent.hrId} ${agent.mis}`.toLowerCase().includes(needle))
+      .sort((a:any,b:any)=>String(a.name).localeCompare(String(b.name)));
+  }, [eligibleAgents, agentSearch, agentLobFilter]);
+
+  const changeActivity = (nextId: number) => {
+    const nextActivity = (activities ?? []).find((x:any) => x.id === nextId);
+    setForm((prev) => ({ ...prev, activityId: nextId, lob: nextActivity?.scope?.[0] ?? prev.lob }));
+    setSelectedAgentIds([]);
+    setAgentSearch('');
+    setAgentLobFilter('All');
+  };
+
+  const submit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!initial && selectedAgentIds.length === 0) return;
+    const done = () => {
+      qc.invalidateQueries({ queryKey: getListSessionsQueryKey() });
+      qc.invalidateQueries({ queryKey: getListActivitiesQueryKey() });
+      qc.invalidateQueries({ queryKey: getGetActivityQueryKey(form.activityId) });
+      if (activityId && activityId !== form.activityId) qc.invalidateQueries({ queryKey: getGetActivityQueryKey(activityId) });
+      onClose();
+    };
+    const payload = { ...form, durationMinutes: Number(form.durationMinutes), agentIds: selectedAgentIds };
+    if (initial) update.mutate({ id: initial.id, data: payload }, { onSuccess: done }); else create.mutate({ data: payload }, { onSuccess: done });
+  };
+
+  return <Modal title={initial ? 'Edit session' : 'Schedule a session'} onClose={onClose}><form onSubmit={submit} className="space-y-4">
+    <Field label="Activity"><Select required value={form.activityId} onChange={(e) => changeActivity(Number(e.target.value))} data-testid="select-session-activity"><option value={0} disabled>Select activity</option>{(activities ?? []).map((x) => <option value={x.id} key={x.id}>{x.name}</option>)}</Select></Field>
+    {!initial && <div className="rounded-2xl border border-[hsl(var(--border))] bg-[hsl(var(--muted)/.28)] p-4">
+      <div className="mb-3 flex flex-wrap items-center justify-between gap-2"><div><p className="text-sm font-bold">Agents for this session <span className="font-normal text-[hsl(var(--muted-foreground))]">({selectedAgentIds.length} selected)</span></p><p className="mt-1 text-xs text-[hsl(var(--muted-foreground))]">Only agents still pending in this activity are available. Anyone already marked Attended is automatically hidden from future sessions.</p></div><span className="rounded-full bg-[hsl(var(--accent))] px-2.5 py-1 text-xs font-bold">{eligibleAgents.length} remaining</span></div>
+      {form.activityId && selectedActivity ? eligibleAgents.length ? <>
+        <div className="mb-2 grid gap-2 sm:grid-cols-[1fr_180px]"><div className="relative"><Search className="absolute left-3.5 top-3 text-[hsl(var(--muted-foreground))]" size={16} /><Input value={agentSearch} onChange={(e)=>setAgentSearch(e.target.value)} placeholder="Search by name, HR ID, or MIS" className="pl-10" data-testid="input-session-agent-search" /></div><Select value={agentLobFilter} onChange={(e)=>setAgentLobFilter(e.target.value)} data-testid="select-session-agent-lob"><option value="All">All LOBs</option>{lobs.map(x=><option key={x} value={x}>{x}</option>)}</Select></div>
+        <div className="mb-2 flex flex-wrap gap-2"><button type="button" onClick={()=>setSelectedAgentIds(Array.from(new Set([...selectedAgentIds,...visibleAgents.map((a:any)=>a.id)])))} className="rounded-lg bg-[hsl(var(--card))] px-3 py-2 text-xs font-bold shadow-sm hover:bg-[hsl(var(--accent))]">Select all shown</button><button type="button" onClick={()=>{const shown=new Set(visibleAgents.map((a:any)=>a.id));setSelectedAgentIds(selectedAgentIds.filter(id=>!shown.has(id)))}} className="rounded-lg bg-[hsl(var(--card))] px-3 py-2 text-xs font-bold shadow-sm hover:bg-[hsl(var(--accent))]">Clear shown</button></div>
+        <div className="grid max-h-56 gap-1 overflow-auto rounded-xl border border-[hsl(var(--border))] bg-[hsl(var(--card))] p-2 sm:grid-cols-2">{visibleAgents.length ? visibleAgents.map((agent:any)=><label key={agent.id} className="flex items-start gap-2 rounded-lg px-2 py-2 text-sm hover:bg-[hsl(var(--muted))]"><input className="mt-1" type="checkbox" checked={selectedAgentIds.includes(agent.id)} onChange={(e)=>setSelectedAgentIds(e.target.checked?[...selectedAgentIds,agent.id]:selectedAgentIds.filter(id=>id!==agent.id))}/><span className="min-w-0"><span className="block truncate font-semibold">{agent.name}</span><span className="block text-[11px] text-[hsl(var(--muted-foreground))]">HR {agent.hrId} · {agent.mis} · {agent.lob}</span></span></label>) : <p className="col-span-full px-3 py-5 text-center text-xs text-[hsl(var(--muted-foreground))]">No pending agents match the current search/filter.</p>}</div>
+      </> : <div className="rounded-xl bg-emerald-50 px-4 py-3 text-sm font-semibold text-emerald-800"><CheckCircle2 className="mr-2 inline" size={16}/>Everyone required for this activity is already covered. There are no pending agents to schedule.</div> : <p className="text-xs text-[hsl(var(--muted-foreground))]">Choose an activity first to load its remaining agents.</p>}
+    </div>}
+    <div className="grid gap-4 sm:grid-cols-2"><Field label="Date"><Input required type="date" value={form.sessionDate} onChange={(e) => setForm({ ...form, sessionDate: e.target.value })} data-testid="input-session-date" /></Field><Field label="Trainer"><Select value={form.trainerId} onChange={(e) => setForm({ ...form, trainerId: Number(e.target.value) })} data-testid="select-session-trainer">{trainers.map((x) => <option value={x.id} key={x.id}>{x.name}</option>)}</Select></Field></div>
+    <div className="grid gap-4 sm:grid-cols-3"><Field label="LOB"><Select value={form.lob} onChange={(e) => setForm({ ...form, lob: e.target.value as any })} data-testid="select-session-lob">{lobs.map((x) => <option key={x}>{x}</option>)}</Select></Field><Field label="Type"><Select value={form.type} onChange={(e) => setForm({ ...form, type: e.target.value as any })} data-testid="select-session-type">{Object.values(SessionType).map((x) => <option key={x}>{x}</option>)}</Select></Field><Field label="Duration (min)"><Input type="number" min="0" value={form.durationMinutes} onChange={(e) => setForm({ ...form, durationMinutes: Number(e.target.value) })} data-testid="input-session-duration" /></Field></div>
+    <Field label="Topic"><Input value={form.topic} onChange={(e) => setForm({ ...form, topic: e.target.value })} placeholder="What will this session cover?" data-testid="input-session-topic" /></Field>
+    <Field label="Notes"><textarea value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} rows={3} className="w-full rounded-xl border border-[hsl(var(--input))] bg-[hsl(var(--background))] px-3.5 py-2.5 text-sm" data-testid="input-session-notes" /></Field>
+    <Button type="submit" disabled={create.isPending || update.isPending || (!initial && selectedAgentIds.length===0)} testId="button-save-session">{create.isPending || update.isPending ? 'Saving…' : `Save session${!initial && selectedAgentIds.length ? ` · ${selectedAgentIds.length} agents` : ''}`}</Button>
+  </form></Modal>;
 }
+
 export function SessionsPage() {
   const { data, isLoading, isError, refetch } = useListSessions(); const [search, setSearch] = useState(''); const [open, setOpen] = useState(false);
   const rows = useMemo(() => (data ?? []).filter((x) => [x.activityName, x.trainer.name, x.sessionId].some((v) => v.toLowerCase().includes(search.toLowerCase()))), [data, search]);

@@ -176,9 +176,21 @@ function activityCoverage(db: Db, activityId: number) {
   const coveredIds = new Set(records.filter(r => r.status === 'Attended').map(r => r.agentId));
   return { requiredIds, coveredIds, records };
 }
+function activityDeadline(endDate: string, pendingAgents: number, status: string) {
+  const today = new Date();
+  today.setHours(0,0,0,0);
+  const due = new Date(`${endDate}T00:00:00`);
+  const daysRemaining = Math.round((due.getTime() - today.getTime()) / 86400000);
+  const active = ['Active','In Progress'].includes(status) && pendingAgents > 0;
+  if (!active) return { daysRemaining, deadlineState: 'clear', deadlineLabel: status === 'Completed' ? 'Completed' : `Ends ${endDate}` };
+  if (daysRemaining < 0) return { daysRemaining, deadlineState: 'overdue', deadlineLabel: `Overdue by ${Math.abs(daysRemaining)} day${Math.abs(daysRemaining)===1?'':'s'}` };
+  if (daysRemaining === 0) return { daysRemaining, deadlineState: 'today', deadlineLabel: 'Due today' };
+  if (daysRemaining <= 3) return { daysRemaining, deadlineState: 'soon', deadlineLabel: `Due in ${daysRemaining} day${daysRemaining===1?'':'s'}` };
+  return { daysRemaining, deadlineState: 'upcoming', deadlineLabel: `Due in ${daysRemaining} days` };
+}
 function activityView(db: Db, a: Activity) {
-  const cov = activityCoverage(db, a.id); const sessions = db.sessions.filter(s => s.activityId === a.id); const required = cov.requiredIds.length; const covered = cov.coveredIds.size;
-  return { ...a, requiredAgents: required, coveredAgents: covered, pendingAgents: Math.max(required-covered,0), coveragePercent: required ? Math.round(covered/required*100) : 0, sessionsCount: sessions.length, lastSessionDate: sessions.length ? [...sessions].sort((x,y)=>x.sessionDate.localeCompare(y.sessionDate)).at(-1)?.sessionDate ?? null : null };
+  const cov = activityCoverage(db, a.id); const sessions = db.sessions.filter(s => s.activityId === a.id); const required = cov.requiredIds.length; const covered = cov.coveredIds.size; const pendingAgents = Math.max(required-covered,0);
+  return { ...a, requiredAgents: required, coveredAgents: covered, pendingAgents, coveragePercent: required ? Math.round(covered/required*100) : 0, sessionsCount: sessions.length, lastSessionDate: sessions.length ? [...sessions].sort((x,y)=>x.sessionDate.localeCompare(y.sessionDate)).at(-1)?.sessionDate ?? null : null, ...activityDeadline(a.endDate, pendingAgents, String(a.status)) };
 }
 function sessionView(db: Db, s: Session) {
   const activity = db.activities.find(a=>a.id===s.activityId); const trainer = TRAINERS.find(t=>t.id===s.trainerId) ?? { id:s.trainerId, name:'Unknown', role:'Trainer' };
@@ -252,7 +264,7 @@ function dashboard(db: Db) {
     return {lob,covered,required:scoped.length,percent:scoped.length?Math.round(covered/scoped.length*100):0,activities};
   });
   const activeBatchRows=db.batches.filter(b=>b.status==='In Training'); const activeNewHireBatches=activeBatchRows.filter(b=>b.batchType!=='Upskill').length; const activeUpskillBatches=activeBatchRows.filter(b=>b.batchType==='Upskill').length;
-  return { completedSessions:completedSessions.length, agentsCovered:coveredAgentIds.size, pendingAgents:Math.max(requiredCount-coveredCount,0), activeHeadCount:activeAgents(db).filter(a=>a.employmentStatus==='Active').length, activeActivities:activeActivityIds.size, activeBatches:activeBatchRows.length, activeNewHireBatches, activeUpskillBatches, newHiresInTraining:db.batchTrainees.filter(t=>!t.graduated && db.batches.some(b=>b.id===t.batchId&&b.status==='In Training'&&b.batchType!=='Upskill')).length, upskillParticipantsInTraining:db.batchTrainees.filter(t=>db.batches.some(b=>b.id===t.batchId&&b.status==='In Training'&&b.batchType==='Upskill')).length, coveragePercent:requiredCount?Math.round(coveredCount/requiredCount*100):0, trainingHours:Math.round(completedSessions.reduce((n,s)=>n+s.durationMinutes,0)/60*10)/10, coverageByLob, sessionsByTrainer:TRAINERS.map(trainer=>({trainer,sessions:completedSessions.filter(s=>s.trainerId===trainer.id).length})).sort((a,b)=>b.sessions-a.sessions || a.trainer.name.localeCompare(b.trainer.name)), needingAttention:activities.filter(a=>a.pendingAgents>0&&['Active','In Progress'].includes(a.status)).slice(0,5), recentActivity:db.logs.slice(0,8) };
+  return { completedSessions:completedSessions.length, agentsCovered:coveredAgentIds.size, pendingAgents:Math.max(requiredCount-coveredCount,0), activeHeadCount:activeAgents(db).filter(a=>a.employmentStatus==='Active').length, activeActivities:activeActivityIds.size, activeBatches:activeBatchRows.length, activeNewHireBatches, activeUpskillBatches, newHiresInTraining:db.batchTrainees.filter(t=>!t.graduated && db.batches.some(b=>b.id===t.batchId&&b.status==='In Training'&&b.batchType!=='Upskill')).length, upskillParticipantsInTraining:db.batchTrainees.filter(t=>db.batches.some(b=>b.id===t.batchId&&b.status==='In Training'&&b.batchType==='Upskill')).length, coveragePercent:requiredCount?Math.round(coveredCount/requiredCount*100):0, trainingHours:Math.round(completedSessions.reduce((n,s)=>n+s.durationMinutes,0)/60*10)/10, coverageByLob, sessionsByTrainer:TRAINERS.map(trainer=>({trainer,sessions:completedSessions.filter(s=>s.trainerId===trainer.id).length})).sort((a,b)=>b.sessions-a.sessions || a.trainer.name.localeCompare(b.trainer.name)), needingAttention:activities.filter(a=>a.pendingAgents>0&&['Active','In Progress'].includes(a.status)).sort((a:any,b:any)=>a.daysRemaining-b.daysRemaining || b.pendingAgents-a.pendingAgents).slice(0,5), recentActivity:db.logs.slice(0,8) };
 }
 function updatesView(db: Db) { return [...db.updates].sort((a,b)=>b.releaseDate.localeCompare(a.releaseDate)).map(u=>{ const views=u.linkedActivities.map(id=>db.activities.find(a=>a.id===id)).filter(Boolean).map(a=>activityView(db,a!)); return { ...u, coveragePercent:views.length?Math.round(views.reduce((n,a)=>n+a.coveragePercent,0)/views.length):0 }; }); }
 function workload(db: Db) { const month=new Date().toISOString().slice(0,7); return TRAINERS.map(trainer=>{ const sessions=db.sessions.filter(s=>s.trainerId===trainer.id); const recs=db.attendance.filter(r=>sessions.some(s=>s.id===r.sessionId)); return { trainer, completedSessions:sessions.filter(s=>s.status==='Completed').length, uniqueAgentsCovered:new Set(recs.filter(r=>r.status==='Attended').map(r=>r.agentId)).size, totalAttendance:recs.length, trainingHours:Math.round(sessions.filter(s=>s.status==='Completed').reduce((n,s)=>n+s.durationMinutes,0)/60*10)/10, activeSessions:sessions.filter(s=>['Planned','In Progress'].includes(s.status)).length, sessionsThisMonth:sessions.filter(s=>s.sessionDate.startsWith(month)).length, activitiesParticipated:new Set(sessions.map(s=>s.activityId)).size }; }).sort((a,b)=>b.completedSessions-a.completedSessions || a.trainer.name.localeCompare(b.trainer.name)); }
@@ -356,7 +368,34 @@ export function deleteAuthUser(id:number) { return withDb(db=>{
   return { removedUserId:id, trainerName:u.name, historyPreserved:true };
 }); }
 
-// Optional helpers for browser-only backup/restore; no server or secret is used.
+// Full-workspace backup / restore. These are intentionally admin-facing helpers.
+// A backup includes the complete shared workspace state: agents, activities, sessions,
+// attendance, batches, exams/question banks, logs, snapshots, users and counters.
+export function exportWorkspaceBackup() {
+  requireAdmin('download a full system backup');
+  return JSON.stringify({
+    format: 'keeta-training-team-backup',
+    version: 1,
+    exportedAt: new Date().toISOString(),
+    storageKey: STORAGE_KEY,
+    data: loadDb(),
+  }, null, 2);
+}
+export function importWorkspaceBackup(json: string) {
+  const actor = requireAdmin('restore a full system backup');
+  const parsed = JSON.parse(json) as any;
+  const payload = parsed?.format === 'keeta-training-team-backup' ? parsed.data : parsed;
+  if (!payload || typeof payload !== 'object' || !Array.isArray(payload.agents) || !Array.isArray(payload.activities) || !Array.isArray(payload.sessions) || !Array.isArray(payload.users)) {
+    throw conflict('This file is not a valid Keeta Training Team backup.');
+  }
+  const base = emptyDb();
+  const restored = { ...base, ...payload, counters: { ...base.counters, ...(payload.counters ?? {}) } } as Db;
+  restored.logs = Array.isArray(restored.logs) ? restored.logs : [];
+  restored.logs.unshift({ id: restored.counters.log++, action: 'Full System Restored', relatedRecord: parsed?.exportedAt ? `Backup from ${parsed.exportedAt}` : 'Imported backup', trainer: actor.name, createdAt: new Date().toISOString() });
+  saveDb(restored);
+  return { restored: true, exportedAt: parsed?.exportedAt ?? null };
+}
+// Backward-compatible aliases kept for any older code paths.
 export function exportLocalDatabase() { return JSON.stringify(loadDb(), null, 2); }
 export function importLocalDatabase(json: string) { const parsed = JSON.parse(json) as Db; saveDb({ ...emptyDb(), ...parsed, counters: { ...emptyDb().counters, ...(parsed.counters ?? {}) } }); }
 export function clearLocalDatabase() { localStorage.removeItem(STORAGE_KEY); }

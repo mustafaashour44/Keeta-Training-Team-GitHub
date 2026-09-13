@@ -70,6 +70,12 @@ function RoutedErrorBoundary({ children }: { children: ReactNode }) {
 
 function App() {
   const [cloudReady, setCloudReady] = useState(false);
+  const [saveNotice, setSaveNotice] = useState('');
+  useEffect(() => {
+    const handler=(event:Event)=>{ const message=(event as CustomEvent)?.detail?.message || 'Saved successfully'; setSaveNotice(message); window.setTimeout(()=>setSaveNotice(''),2200); };
+    window.addEventListener('keeta-save-success',handler);
+    return ()=>window.removeEventListener('keeta-save-success',handler);
+  }, []);
   // Pull the shared team database from the cloud on load, then stay
   // subscribed so changes made by teammates on other devices show up
   // here automatically.
@@ -85,6 +91,7 @@ function App() {
           <AuthGate><Router /></AuthGate>
         </WouterRouter>
         <Toaster />
+        {saveNotice && <div className="fixed right-5 top-5 z-[9999] rounded-xl bg-emerald-700 px-4 py-3 text-sm font-bold text-white shadow-xl">✓ {saveNotice}</div>}
       </TooltipProvider>
     </QueryClientProvider>
   );

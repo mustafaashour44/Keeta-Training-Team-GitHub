@@ -71,10 +71,13 @@ function RoutedErrorBoundary({ children }: { children: ReactNode }) {
 function App() {
   const [cloudReady, setCloudReady] = useState(false);
   const [saveNotice, setSaveNotice] = useState('');
+  const [storageWarning,setStorageWarning]=useState<{percent:number}|null>(null);
   useEffect(() => {
     const handler=(event:Event)=>{ const message=(event as CustomEvent)?.detail?.message || 'Saved successfully'; setSaveNotice(message); window.setTimeout(()=>setSaveNotice(''),2200); };
     window.addEventListener('keeta-save-success',handler);
-    return ()=>window.removeEventListener('keeta-save-success',handler);
+    const storageHandler=(event:Event)=>setStorageWarning((event as CustomEvent).detail);
+    window.addEventListener('keeta-storage-warning',storageHandler);
+    return ()=>{window.removeEventListener('keeta-save-success',handler);window.removeEventListener('keeta-storage-warning',storageHandler);};
   }, []);
   // Pull the shared team database from the cloud on load, then stay
   // subscribed so changes made by teammates on other devices show up
@@ -91,6 +94,7 @@ function App() {
           <AuthGate><Router /></AuthGate>
         </WouterRouter>
         <Toaster />
+        {storageWarning && <div className="fixed left-1/2 top-5 z-[9999] w-[min(92vw,680px)] -translate-x-1/2 rounded-xl bg-amber-100 px-4 py-3 text-sm font-bold text-amber-900 shadow-xl">⚠ Database document is about {storageWarning.percent}% full. Download a full JSON/Excel backup from Settings before clearing old records.</div>}
         {saveNotice && <div className="fixed right-5 top-5 z-[9999] rounded-xl bg-emerald-700 px-4 py-3 text-sm font-bold text-white shadow-xl">✓ {saveNotice}</div>}
       </TooltipProvider>
     </QueryClientProvider>

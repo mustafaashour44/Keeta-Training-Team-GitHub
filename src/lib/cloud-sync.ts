@@ -29,6 +29,10 @@ let lastSyncedJson = '';
 export function pushToCloud(db: unknown) {
   const json = JSON.stringify(db);
   if (json === lastSyncedJson) return;
+  const bytes = new TextEncoder().encode(json).length;
+  const limit = 1024 * 1024; // Firestore single-document hard limit is ~1 MiB.
+  const pct = Math.round((bytes / limit) * 100);
+  if (typeof window !== 'undefined' && pct >= 70) window.dispatchEvent(new CustomEvent('keeta-storage-warning',{detail:{percent:pct,bytes,limit}}));
   if (pushTimer) clearTimeout(pushTimer);
   pushTimer = setTimeout(() => {
     lastSyncedJson = json;

@@ -48,3 +48,11 @@ export async function createFirstPassword(userId: number, password: string) {
 export function adminResetPassword(userId: number) { return updateAuthUser(userId, { passwordHash: null }); }
 export function adminToggleFreeze(userId: number, frozen: boolean) { return updateAuthUser(userId, { frozen }); }
 export function adminDeleteUser(userId: number) { return deleteAuthUser(userId); }
+
+export async function changeOwnPassword(currentPassword:string,newPassword:string){
+  const current=getCurrentUser(); if(!current) throw new Error('Sign in again.');
+  if(newPassword.length<4) throw new Error('New password must be at least 4 characters.');
+  await authenticate(current.id,currentPassword);
+  const fresh=getAuthUsers().find(u=>u.id===current.id); if(!fresh) throw new Error('User not found.');
+  const hash=await hashPassword(newPassword,fresh.salt); const updated=setUserPasswordHash(fresh.id,hash); setCurrentUser(updated); return updated;
+}

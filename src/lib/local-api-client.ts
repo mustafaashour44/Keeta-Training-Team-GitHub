@@ -50,15 +50,15 @@ const LOBS = Object.values(Lob);
 const STORAGE_KEY = 'keeta-training-team-db-v1';
 
 type Agent = { id: number; hrId: string; mis: string; name: string; lob: Lob; employmentStatus: AgentStatus; trainingStage?: 'Active' | 'Nesting W1' | 'Nesting W2' | null; dateAdded: string; notes: string | null; archivedAt: string | null };
-type Activity = { id: number; name: string; type: ActivityType | string; scope: Lob[]; startDate: string; endDate: string; status: ActivityStatus | string; description: string | null; requiredAgentIds: number[]; createdByUserId: number | null; createdByName: string | null };
-type Session = { id: number; sessionId: string; activityId: number; sessionDate: string; trainerId: number; lob: Lob; type: SessionType | string; topic: string | null; durationMinutes: number; status: SessionStatus | string; notes: string | null; createdByUserId: number | null; createdByName: string | null };
+type Activity = { id: number; name: string; type: ActivityType | string; scope: Lob[]; startDate: string; endDate: string; status: ActivityStatus | string; description: string | null; requiredAgentIds: number[]; createdByUserId: number | null; createdByName: string | null; assistantTrainerIds?: number[] };
+type Session = { id: number; sessionId: string; activityId: number; sessionDate: string; trainerId: number; lob: Lob; type: SessionType | string; topic: string | null; durationMinutes: number; status: SessionStatus | string; notes: string | null; createdByUserId: number | null; createdByName: string | null; assistantTrainerIds?: number[] };
 type Attendance = { id: number; sessionId: number; agentId: number; status: AttendanceStatus | string; result: number | null; notes: string | null };
 type TrainingUpdate = { id: number; updateId: string; title: string; description: string | null; scope: Lob[]; releaseDate: string; deadline: string | null; status: UpdateStatus | string; linkedActivities: number[]; notes: string | null };
 export type BatchStatus = 'In Training' | 'Completed' | 'Archived';
 export type BatchType = 'New Hire' | 'Upskill';
 export type CertificationStatus = 'Pending' | 'Passed' | 'Failed';
 export type BatchAttendanceStatus = 'Not Marked' | 'Attended' | 'Absent';
-type Batch = { id: number; batchId: string; name: string; batchType: BatchType; lob: Lob; trainerId: number; startDate: string; durationDays: number; status: BatchStatus; notes: string | null; dayDates: string[]; createdAt: string; createdByUserId: number | null; createdByName: string | null };
+type Batch = { id: number; batchId: string; name: string; batchType: BatchType; lob: Lob; trainerId: number; startDate: string; durationDays: number; status: BatchStatus; notes: string | null; dayDates: string[]; createdAt: string; createdByUserId: number | null; createdByName: string | null; assistantTrainerIds?: number[] };
 type BatchTrainee = { id: number; batchId: number; sourceAgentId: number | null; name: string; mis: string | null; hrId: string | null; jw: string | null; email: string | null; portalPassword: string | null; phoneNumber: string | null; notes: string | null; quizScore: string | null; quizResult: CertificationStatus; quizNotes: string | null; typingWpm: string | null; typingAccuracy: string | null; typingResult: CertificationStatus; typingNotes: string | null; knowledgeAttempt1?: CertificationStatus; knowledgeAttempt2?: CertificationStatus; mockAttempt1?: CertificationStatus; mockAttempt2?: CertificationStatus; mockCaseId1?: string | null; mockCaseId2?: string | null; nestingWeek1?: CertificationStatus; nestingWeek2?: CertificationStatus; stage?: string; finalScore: string | null; finalNotes: string | null; certificationStatus: CertificationStatus; graduated: boolean; agentId: number | null; addedByUserId?: number | null; addedByName?: string | null };
 type BatchAttendance = { id: number; batchId: number; traineeId: number; dayNumber: number; date: string; status: BatchAttendanceStatus; notes: string | null };
 type BatchQuiz = { id: number; batchId: number; traineeId: number; dayNumber: number; date: string; score: string | null; result: CertificationStatus; notes: string | null };
@@ -107,7 +107,14 @@ function loadDb(): Db {
     if (!Array.isArray(merged.batchRolePlays)) merged.batchRolePlays = [];
     merged.activities = (merged.activities ?? []).map((a:any) => ({ ...a, createdByUserId: a.createdByUserId ?? null, createdByName: a.createdByName ?? null }));
     merged.sessions = (merged.sessions ?? []).map((x:any) => ({ ...x, createdByUserId: x.createdByUserId ?? null, createdByName: x.createdByName ?? null }));
-    merged.batches = (merged.batches ?? []).map((b:any) => ({ ...b, batchType: b.batchType === 'Upskill' ? 'Upskill' : 'New Hire', createdByUserId: b.createdByUserId ?? null, createdByName: b.createdByName ?? null }));
+    merged.batches = (merged.batches ?? []).map((b:any) => ({ ...b, batchType: b.batchType === 'Upskill' ? 'Upskill' : 'New Hire', createdByUserId: b.createdByUserId ?? null, createdByName: b.createdByName ?? null, assistantTrainerIds: Array.isArray(b.assistantTrainerIds) ? b.assistantTrainerIds : [] }));
+    // One-time access migration: Nesreen assists only the current (latest active) Mustafa batch, never all Mustafa batches.
+    const ACCESS_MIGRATION_KEY='keeta-access-current-mustafa-batch-v1';
+    if(!localStorage.getItem(ACCESS_MIGRATION_KEY)){
+      const currentMustafa=[...merged.batches].filter((b:any)=>Number(b.trainerId)===1&&b.status==='In Training').sort((a:any,b:any)=>String(b.createdAt||b.startDate||'').localeCompare(String(a.createdAt||a.startDate||'')))[0];
+      if(currentMustafa && !(currentMustafa.assistantTrainerIds??[]).map(Number).includes(5)) currentMustafa.assistantTrainerIds=[...(currentMustafa.assistantTrainerIds??[]),5];
+      localStorage.setItem(ACCESS_MIGRATION_KEY,'1');
+    }
     merged.examLinks = (merged.examLinks ?? []).map((e:any) => ({ ...e, itemKind: e.itemKind === 'Question Bank' ? 'Question Bank' : 'Exam Package', url: e.itemKind === 'Question Bank' ? null : (e.url ?? null), createdByUserId: e.createdByUserId ?? null }));
     // Backfill ownership for records created before ownership fields existed, using Recent Activity when available.
     const userIdByName = (name?: string | null) => merged.users.find(u => u.name === name)?.id ?? null;
@@ -182,7 +189,7 @@ function requireOwnerOrAdmin(record:{createdByUserId?:number|null;createdByName?
 
 function requireBatchManager(batch: Batch, action='update this batch') {
   const actor=currentActor();
-  if(!actor || (!actor.isAdmin && Number(batch.trainerId)!==actor.id)) throw conflict(`Only the responsible trainer for this batch or Mustafa (Main Admin) can ${action}.`);
+  if(!actor || (!actor.isAdmin && Number(batch.trainerId)!==actor.id && !(batch.assistantTrainerIds??[]).map(Number).includes(actor.id))) throw conflict(`Only the responsible trainer for this batch or Mustafa (Main Admin) can ${action}.`);
   return actor;
 }
 function syncTraineeStage(db:Db,t:BatchTrainee,b:Batch){
@@ -329,7 +336,7 @@ function workload(db: Db) { const month=new Date().toISOString().slice(0,7); ret
 function trainerFor(id:number) { return TRAINERS.find(t=>t.id===id) ?? { id, name:'Former trainer', role:'Trainer' }; }
 function batchView(db:Db, b:Batch) {
   const trainees=db.batchTrainees.filter(t=>t.batchId===b.id);
-  return { ...b, batchType:b.batchType==='Upskill'?'Upskill':'New Hire', trainer:trainerFor(b.trainerId), traineeCount:trainees.length, passedCount:trainees.filter(t=>t.certificationStatus==='Passed').length, nestingW1Count:trainees.filter(t=>t.stage==='Nesting W1').length, nestingW2Count:trainees.filter(t=>t.stage==='Nesting W2').length, activeCount:trainees.filter(t=>t.stage==='Active').length, failedCount:trainees.filter(t=>String(t.stage||'').startsWith('Failed')).length, graduatedCount:trainees.filter(t=>t.graduated).length };
+  return { ...b, assistantTrainerIds:b.assistantTrainerIds??[], batchType:b.batchType==='Upskill'?'Upskill':'New Hire', trainer:trainerFor(b.trainerId), traineeCount:trainees.length, passedCount:trainees.filter(t=>t.certificationStatus==='Passed').length, nestingW1Count:trainees.filter(t=>t.stage==='Nesting W1').length, nestingW2Count:trainees.filter(t=>t.stage==='Nesting W2').length, activeCount:trainees.filter(t=>t.stage==='Active').length, failedCount:trainees.filter(t=>String(t.stage||'').startsWith('Failed')).length, graduatedCount:trainees.filter(t=>t.graduated).length };
 }
 function relatedTrainees(db:Db,t:BatchTrainee){
   const ids=new Set<number>([t.id]);

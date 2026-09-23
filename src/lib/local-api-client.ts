@@ -593,3 +593,16 @@ export async function initCloudSync(onRemoteUpdate: () => void) {
     onRemoteUpdate();
   });
 }
+
+// V5 cross-workspace intelligence. Read-only by design: it never mutates historical records.
+export function getV5WorkspaceIntelligence(){
+  const db=loadDb();
+  const trainees=db.batchTrainees.map(t=>{const b=db.batches.find(x=>x.id===t.batchId);const att=db.batchAttendance.filter(a=>a.traineeId===t.id);const quizzes=db.batchQuiz.filter(q=>q.traineeId===t.id);const typing=db.batchTyping.filter(x=>x.traineeId===t.id);const resigned=att.filter(a=>a.status==='Resigned').sort((a,b)=>a.dayNumber-b.dayNumber)[0];const abs=att.filter(a=>a.status==='Absent').length;const quizFails=quizzes.filter(q=>q.result==='Failed').length;const typingFails=typing.filter(x=>x.result==='Failed').length;const reasons:string[]=[];if(abs>=2)reasons.push(`${abs} absences`);if(quizFails>=2)reasons.push(`${quizFails} failed quizzes`);if(typingFails>=2)reasons.push(`${typingFails} typing misses`);if(t.knowledgeAttempt1==='Failed'||t.mockAttempt1==='Failed')reasons.push('certification retry');return {...t,batchName:b?.name??'—',batchCode:b?.batchId??'—',lob:b?.lob??'—',resigned,reasons,attendanceRecords:att.length,quizRecords:quizzes.length,typingRecords:typing.length};});
+  const risks=trainees.filter(t=>!t.resigned&&!t.graduated&&t.reasons.length).sort((a,b)=>b.reasons.length-a.reasons.length);
+  const quality:any[]=[];
+  for(const t of trainees){if(!t.hrId)quality.push({type:'Missing HR ID',name:t.name,where:t.batchName});if(!t.mis&&!t.jw)quality.push({type:'Missing MIS/JW',name:t.name,where:t.batchName});if(t.resigned){const later=db.batchAttendance.filter(a=>a.traineeId===t.id&&a.dayNumber>t.resigned.dayNumber)||[];if(later.length)quality.push({type:'Attendance after resignation',name:t.name,where:t.batchName});}}
+  const mis=new Map<string,string[]>(); const hr=new Map<string,string[]>(); for(const a of db.agents){if(a.mis){const k=a.mis.toLowerCase();mis.set(k,[...(mis.get(k)??[]),a.name]);}if(a.hrId){const k=a.hrId.toLowerCase();hr.set(k,[...(hr.get(k)??[]),a.name]);}} for(const [k,n] of mis)if(n.length>1)quality.push({type:'Duplicate MIS',name:n.join(', '),where:k});for(const [k,n] of hr)if(n.length>1)quality.push({type:'Duplicate HR ID',name:n.join(', '),where:k});
+  const search=[...db.agents.map(a=>({kind:'Agent',title:a.name,sub:`${a.hrId} · ${a.mis} · ${a.lob}`,href:`/agents/${a.id}`})),...db.batches.map(b=>({kind:'Batch',title:b.name,sub:`${b.batchId} · ${b.lob}`,href:`/batches/${b.id}`})),...db.examLinks.map(e=>({kind:e.itemKind,title:e.title,sub:`${e.lob} · ${e.status}`,href:'/exam-links'}))];
+  const hcTrend=[...new Map(db.snapshots.map(s=>[s.month,0])).keys()].sort().map(month=>({month,total:db.snapshots.filter(s=>s.month===month).reduce((n,s)=>n+s.total,0),active:db.snapshots.filter(s=>s.month===month).reduce((n,s)=>n+s.active,0)}));
+  return {risks,quality,search,logs:db.logs.slice(0,250),hcTrend,summary:{trainees:trainees.filter(t=>!t.resigned&&!t.graduated).length,resigned:trainees.filter(t=>!!t.resigned).length,risks:risks.length,quality:quality.length,activeAgents:db.agents.filter(a=>!a.archivedAt&&a.employmentStatus==='Active').length}};
+}

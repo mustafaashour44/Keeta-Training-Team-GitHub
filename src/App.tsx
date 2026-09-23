@@ -24,6 +24,7 @@ import {
   BatchesPage,
   ExamLinksPage,
   WorkloadPage,
+  V5CenterPage,
 } from '@/pages/operations-pages';
 import {
   Route,
@@ -55,6 +56,7 @@ function Router() {
           <Route path="/exam-links" component={ExamLinksPage} />
           <Route path="/workload" component={WorkloadPage} />
           <Route path="/reports" component={ReportsPage} />
+          <Route path="/v5-center" component={V5CenterPage} />
           <Route path="/settings">{() => getCurrentUser()?.isAdmin ? <SettingsPage /> : <DashboardPage />}</Route>
           <Route component={NotFound} />
         </Switch>

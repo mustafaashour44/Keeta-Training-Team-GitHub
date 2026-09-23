@@ -1,4 +1,4 @@
-import { BookOpenCheck, ChartNoAxesCombined, ClipboardList, FileBarChart, Gauge, GraduationCap, LayoutDashboard, Link2, LogOut, Menu, Settings, Users, X } from 'lucide-react';
+import { BookOpenCheck, ChartNoAxesCombined, ClipboardList, FileBarChart, Gauge, GraduationCap, LayoutDashboard, Link2, LogOut, Menu, Settings, Users, X, Sparkles } from 'lucide-react';
 import { useState } from 'react';
 import { Link, useLocation } from 'wouter';
 import { getCurrentUser, logout } from '@/lib/user-auth';
@@ -14,6 +14,7 @@ const navigation = [
   { href: '/exam-links', label: 'Exam', icon: Link2 },
   { href: '/workload', label: 'Workload', icon: Users },
   { href: '/reports', label: 'Reports', icon: FileBarChart },
+  { href: '/v5-center', label: 'V5 Center', icon: Sparkles },
 ];
 
 export function AppShell({ children }: { children: React.ReactNode }) {
